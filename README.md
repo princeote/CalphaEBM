@@ -6,15 +6,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-CalphaEBM is a **physics-grounded, modular energy function** for Cα protein coordinates that enables stable Langevin dynamics simulation. The model decomposes the effective free energy (potential of mean force) into four interpretable terms trained in phases.
+CalphaEBM is a **physics-based, machine-learned modular energy function** for Cα protein coordinates that enables stable Langevin dynamics simulation. The model decomposes the effective free energy (potential of mean force) into four interpretable terms.
 
 ## Key Features
 
-- **Modular energy decomposition**: Local geometry, excluded volume, secondary structure, and packing
-- **Phased training**: Freeze previous terms as new ones are added
-- **Force-scale balancing**: Automatic λ recommendation from median force scales
-- **PDB70-like dataset builder**: Create non-redundant training sets via RCSB API
-- **Langevin dynamics**: Stable simulation with force clipping and diagnostics
+- **Modular energy**: Local geometry, excluded volume, secondary structure, and packing
+- **Langevin dynamics**: Stable conformational sampling simulation
 - **Denoising score matching**: Train without partition function
 - **Safety features**: Smooth switching, bounded radii, force caps
 - **Multiple output formats**: DCD, NPY, PT, PDB for compatibility with MD tools
