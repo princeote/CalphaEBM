@@ -13,15 +13,15 @@ Key metrics for dynamics:
 from __future__ import annotations
 
 import math
+
 import numpy as np
 import torch
 
-from .base import BaseValidator
-from calphaebm.data.synthetic import make_helix, make_extended_chain
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct, coords_to_internal, extract_anchor,
-)
+from calphaebm.data.synthetic import make_extended_chain, make_helix
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.utils.logging import get_logger
+
+from .base import BaseValidator
 
 logger = get_logger()
 
@@ -100,13 +100,13 @@ class BehaviorValidator(BaseValidator):
 
         Positive → model assigns lower energy to helix than extended coil.
         """
-        R_helix    = make_helix(batch=1, length=length, noise=helix_noise).to(self.device)
+        R_helix = make_helix(batch=1, length=length, noise=helix_noise).to(self.device)
         R_extended = make_extended_chain(batch=1, length=length, noise=random_noise).to(self.device)
-        seq_ala    = torch.full((1, length), fill_value=ALA_IDX, dtype=torch.long, device=self.device)
-        lens       = torch.tensor([length], dtype=torch.long, device=self.device)
+        seq_ala = torch.full((1, length), fill_value=ALA_IDX, dtype=torch.long, device=self.device)
+        lens = torch.tensor([length], dtype=torch.long, device=self.device)
 
         with torch.no_grad():
-            E_helix    = self.model(R_helix, seq_ala, lengths=lens).mean()
+            E_helix = self.model(R_helix, seq_ala, lengths=lens).mean()
             E_extended = self.model(R_extended, seq_ala, lengths=lens).mean()
 
         return float((E_extended - E_helix).item())
@@ -124,20 +124,23 @@ class BehaviorValidator(BaseValidator):
         if not hasattr(self.model, "secondary") or self.model.secondary is None:
             return 0.0
 
-        R_helix    = make_helix(batch=1, length=length, noise=helix_noise).to(self.device)
+        R_helix = make_helix(batch=1, length=length, noise=helix_noise).to(self.device)
         R_extended = make_extended_chain(batch=1, length=length, noise=random_noise).to(self.device)
-        seq_ala    = torch.full((1, length), fill_value=ALA_IDX, dtype=torch.long, device=self.device)
-        lens       = torch.tensor([length], dtype=torch.long, device=self.device)
+        seq_ala = torch.full((1, length), fill_value=ALA_IDX, dtype=torch.long, device=self.device)
+        lens = torch.tensor([length], dtype=torch.long, device=self.device)
 
         with torch.no_grad():
-            E_helix_ss    = self.model.secondary(R_helix, seq_ala, lengths=lens).mean()
+            E_helix_ss = self.model.secondary(R_helix, seq_ala, lengths=lens).mean()
             E_extended_ss = self.model.secondary(R_extended, seq_ala, lengths=lens).mean()
 
         gap = float((E_extended_ss - E_helix_ss).item())
         sign = "OK ✓" if gap > 0 else "INVERTED ✗"
         logger.info(
             "[secondary_term] E_extended=%.3f  E_helix=%.3f  gap=%.3f  [%s]",
-            E_extended_ss.item(), E_helix_ss.item(), gap, sign,
+            E_extended_ss.item(),
+            E_helix_ss.item(),
+            gap,
+            sign,
         )
         return gap
 
@@ -220,10 +223,7 @@ class BehaviorValidator(BaseValidator):
                     pass
 
         # Per-sigma mean gaps
-        gap_profile = {
-            sig: float(np.mean(gaps)) if gaps else 0.0
-            for sig, gaps in native_gaps_by_sigma.items()
-        }
+        gap_profile = {sig: float(np.mean(gaps)) if gaps else 0.0 for sig, gaps in native_gaps_by_sigma.items()}
         mean_gap = float(np.mean(list(gap_profile.values()))) if gap_profile else 0.0
 
         native_gap_mean = gap_profile.get(0.3, 0.0)
@@ -231,21 +231,21 @@ class BehaviorValidator(BaseValidator):
 
         secondary_gap = self.validate_secondary_term()
 
-        per_subterm_gaps = {
-            k: float(np.mean(v)) for k, v in subterm_gap_accum.items()
-        }
+        per_subterm_gaps = {k: float(np.mean(v)) for k, v in subterm_gap_accum.items()}
 
         metrics = {
             "native_vs_distorted_gap": native_gap_mean,
-            "helix_vs_random_gap":     secondary_gap,
-            "secondary_helix_gap":     secondary_gap,
-            "energy_mean":             float(np.mean(all_energies)) if all_energies else 0.0,
-            "energy_std":              float(np.std(all_energies))  if all_energies else 0.0,
-            "energy_consistency":      float(np.std(native_gaps_by_sigma.get(0.3, []))) if native_gaps_by_sigma.get(0.3) else 0.0,
-            "gap_profile":             gap_profile,
-            "mean_gap":                mean_gap,
-            "small_sigma_gap":         small_sigma_gap,
-            "per_subterm_gaps":        per_subterm_gaps,
+            "helix_vs_random_gap": secondary_gap,
+            "secondary_helix_gap": secondary_gap,
+            "energy_mean": float(np.mean(all_energies)) if all_energies else 0.0,
+            "energy_std": float(np.std(all_energies)) if all_energies else 0.0,
+            "energy_consistency": float(np.std(native_gaps_by_sigma.get(0.3, [])))
+            if native_gaps_by_sigma.get(0.3)
+            else 0.0,
+            "gap_profile": gap_profile,
+            "mean_gap": mean_gap,
+            "small_sigma_gap": small_sigma_gap,
+            "per_subterm_gaps": per_subterm_gaps,
         }
 
         gap_str = "  ".join(f"@{s:.2f}r={gap_profile[s]:+.3f}" for s in gap_sigmas)

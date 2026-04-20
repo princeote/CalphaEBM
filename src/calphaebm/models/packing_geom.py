@@ -34,6 +34,7 @@ logger = get_logger()
 # Geometry feature extractor
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _cosine_switch(r: torch.Tensor, r_on: float, r_cut: float) -> torch.Tensor:
     """Smooth switch: 1 for r<=r_on, cosine ramp to 0 over (r_on, r_cut), 0 for r>=r_cut."""
     x = (r - r_on) / (r_cut - r_on)
@@ -62,7 +63,7 @@ class GeometryFeatures(nn.Module):
     N_FEATURES: int = 7
 
     COORD_R_HALF = 7.0
-    COORD_TAU    = 1.0
+    COORD_TAU = 1.0
 
     def __init__(
         self,
@@ -98,13 +99,13 @@ class GeometryFeatures(nn.Module):
         self.r_cut = r_cut
         self.max_dist = max_dist
 
-        self.register_buffer("norm_n_tight",        torch.tensor(norm_n_tight,        dtype=torch.float32))
-        self.register_buffer("norm_n_medium",       torch.tensor(norm_n_medium,       dtype=torch.float32))
-        self.register_buffer("norm_n_loose",        torch.tensor(norm_n_loose,        dtype=torch.float32))
-        self.register_buffer("norm_mean_r_centre",  torch.tensor(norm_mean_r_centre,  dtype=torch.float32))
-        self.register_buffer("norm_mean_r_scale",   torch.tensor(norm_mean_r_scale,   dtype=torch.float32))
-        self.register_buffer("norm_std_r",          torch.tensor(norm_std_r,          dtype=torch.float32))
-        self.register_buffer("norm_inv_sq",         torch.tensor(norm_inv_sq,         dtype=torch.float32))
+        self.register_buffer("norm_n_tight", torch.tensor(norm_n_tight, dtype=torch.float32))
+        self.register_buffer("norm_n_medium", torch.tensor(norm_n_medium, dtype=torch.float32))
+        self.register_buffer("norm_n_loose", torch.tensor(norm_n_loose, dtype=torch.float32))
+        self.register_buffer("norm_mean_r_centre", torch.tensor(norm_mean_r_centre, dtype=torch.float32))
+        self.register_buffer("norm_mean_r_scale", torch.tensor(norm_mean_r_scale, dtype=torch.float32))
+        self.register_buffer("norm_std_r", torch.tensor(norm_std_r, dtype=torch.float32))
+        self.register_buffer("norm_inv_sq", torch.tensor(norm_inv_sq, dtype=torch.float32))
 
         if n_mean_per_aa is not None:
             _n_mean = torch.tensor(n_mean_per_aa[:num_aa], dtype=torch.float32)
@@ -120,8 +121,8 @@ class GeometryFeatures(nn.Module):
             _n_hi = torch.full((num_aa,), 7.5, dtype=torch.float32)
 
         self.register_buffer("n_mean_aa", _n_mean)
-        self.register_buffer("n_lo_aa",   _n_lo)
-        self.register_buffer("n_hi_aa",   _n_hi)
+        self.register_buffer("n_lo_aa", _n_lo)
+        self.register_buffer("n_hi_aa", _n_hi)
         _n_scale = ((_n_hi - _n_lo) / 2.0).clamp(min=0.5)
         self.register_buffer("n_scale_aa", _n_scale)
         _n_band = (_n_hi - _n_lo).clamp(min=0.5)
@@ -130,7 +131,7 @@ class GeometryFeatures(nn.Module):
     def forward(self, r: torch.Tensor, seq: torch.Tensor) -> torch.Tensor:
         B, L, K = r.shape
 
-        valid = (r < self.max_dist - 1e-4)
+        valid = r < self.max_dist - 1e-4
         valid_f = valid.float()
         n_valid = valid_f.sum(dim=-1).clamp(min=1)
 
@@ -141,13 +142,13 @@ class GeometryFeatures(nn.Module):
         sw_long = _cosine_switch(r_safe, self.r_on, self.r_cut)
 
         tau = max(self.sig_tau, 1e-3)
-        sig_tight  = torch.sigmoid((self.tight_cut  - r_safe) / tau) * sw_short
+        sig_tight = torch.sigmoid((self.tight_cut - r_safe) / tau) * sw_short
         sig_medium = torch.sigmoid((self.medium_cut - r_safe) / tau) * sw_short
-        sig_loose  = torch.sigmoid((self.loose_cut  - r_safe) / tau) * sw_short * sw_long
+        sig_loose = torch.sigmoid((self.loose_cut - r_safe) / tau) * sw_short * sw_long
 
-        n_tight  = sig_tight.sum(dim=-1)
+        n_tight = sig_tight.sum(dim=-1)
         n_medium = sig_medium.sum(dim=-1)
-        n_loose  = sig_loose.sum(dim=-1)
+        n_loose = sig_loose.sum(dim=-1)
 
         g_coord = torch.sigmoid((self.COORD_R_HALF - r_safe) / self.COORD_TAU)
         g_coord = g_coord * valid_f
@@ -157,10 +158,10 @@ class GeometryFeatures(nn.Module):
         diff_sq = (r_safe - mean_r.unsqueeze(-1)).pow(2) * valid_f
         std_r = (diff_sq.sum(dim=-1) / n_valid + 1e-4).sqrt()
 
-        n_mean_i  = self.n_mean_aa[seq]
+        n_mean_i = self.n_mean_aa[seq]
         n_scale_i = self.n_scale_aa[seq]
-        n_lo_i    = self.n_lo_aa[seq]
-        n_band_i  = self.n_band_aa[seq]
+        n_lo_i = self.n_lo_aa[seq]
+        n_band_i = self.n_band_aa[seq]
 
         n_dev_signed = (n_coord - n_mean_i) / n_scale_i
         n_dev_abs = n_dev_signed.abs()
@@ -170,10 +171,18 @@ class GeometryFeatures(nn.Module):
         std_r_norm = std_r / self.norm_std_r.clamp(min=0.1)
         n_frac_band = (n_coord - n_lo_i) / n_band_i
 
-        geom = torch.stack([
-            n_dev_signed, n_dev_abs, shell_ratio, shell_asym,
-            mean_r_dev, std_r_norm, n_frac_band,
-        ], dim=-1)
+        geom = torch.stack(
+            [
+                n_dev_signed,
+                n_dev_abs,
+                shell_ratio,
+                shell_asym,
+                mean_r_dev,
+                std_r_norm,
+                n_frac_band,
+            ],
+            dim=-1,
+        )
 
         return geom
 

@@ -98,17 +98,19 @@ def _load_ca_coords(pdb_arg: str, chain: str | None, cache_dir: str):
 
     Returns (R, label) where R is a (1, L, 3) float32 tensor.
     """
-    import torch
     from pathlib import Path
+
+    import torch
+
     from calphaebm.data.pdb_parse import download_cif, parse_cif_ca_chains
 
     p = Path(pdb_arg)
     if p.exists():
         cif_path = str(p)
-        label    = p.stem.upper()
+        label = p.stem.upper()
     else:
         cif_path = download_cif(pdb_arg, cache_dir=cache_dir)
-        label    = pdb_arg.upper()
+        label = pdb_arg.upper()
 
     chains = parse_cif_ca_chains(cif_path, pdb_arg.lower())
     if not chains:
@@ -128,6 +130,7 @@ def _load_ca_coords(pdb_arg: str, chain: str | None, cache_dir: str):
 
 # ── Verification logic ────────────────────────────────────────────────────────
 
+
 def _structural_metrics(R_native, R_recon):
     """Compute structural integrity metrics comparing native to reconstructed.
 
@@ -142,15 +145,16 @@ def _structural_metrics(R_native, R_recon):
         torsion_mad : median absolute deviation of torsions φ (radians) — should be ~0
     """
     import torch
+
     from calphaebm.geometry.internal import bond_angles, torsions
 
-    R_n = R_native.squeeze(0)   # (L, 3)
-    R_r = R_recon.squeeze(0)    # (L, 3)
-    L   = R_n.shape[0]
+    R_n = R_native.squeeze(0)  # (L, 3)
+    R_r = R_recon.squeeze(0)  # (L, 3)
+    L = R_n.shape[0]
 
     # --- pairwise distance matrices ---
-    D_n = (R_n[:, None] - R_n[None, :]).norm(dim=-1)   # (L, L)
-    D_r = (R_r[:, None] - R_r[None, :]).norm(dim=-1)   # (L, L)
+    D_n = (R_n[:, None] - R_n[None, :]).norm(dim=-1)  # (L, L)
+    D_r = (R_r[:, None] - R_r[None, :]).norm(dim=-1)  # (L, L)
 
     # upper triangle, exclude bonded (|i-j| > 1)
     mask = torch.zeros(L, L, dtype=torch.bool)
@@ -166,87 +170,92 @@ def _structural_metrics(R_native, R_recon):
 
     # Contact map F1 at 8 Å cutoff
     cutoff = 8.0
-    c_n = (d_n < cutoff)
-    c_r = (d_r < cutoff)
+    c_n = d_n < cutoff
+    c_r = d_r < cutoff
     tp = (c_n & c_r).sum().float()
     fp = (~c_n & c_r).sum().float()
     fn = (c_n & ~c_r).sum().float()
     precision = tp / (tp + fp + 1e-8)
-    recall    = tp / (tp + fn + 1e-8)
-    f1        = (2 * precision * recall / (precision + recall + 1e-8)).item()
+    recall = tp / (tp + fn + 1e-8)
+    f1 = (2 * precision * recall / (precision + recall + 1e-8)).item()
 
     # Angle RMSD (should be ~0 — angles are preserved exactly by NeRF)
-    theta_n = bond_angles(R_native.unsqueeze(0) if R_native.dim()==2 else R_native).squeeze()
-    theta_r = bond_angles(R_recon.unsqueeze(0)  if R_recon.dim()==2  else R_recon).squeeze()
+    theta_n = bond_angles(R_native.unsqueeze(0) if R_native.dim() == 2 else R_native).squeeze()
+    theta_r = bond_angles(R_recon.unsqueeze(0) if R_recon.dim() == 2 else R_recon).squeeze()
     angle_rmsd = ((theta_n - theta_r) ** 2).mean().sqrt().item()
 
     # Torsion MAD (should be ~0 — torsions are preserved exactly by NeRF)
-    phi_n = torsions(R_native.unsqueeze(0) if R_native.dim()==2 else R_native).squeeze()
-    phi_r = torsions(R_recon.unsqueeze(0)  if R_recon.dim()==2  else R_recon).squeeze()
+    phi_n = torsions(R_native.unsqueeze(0) if R_native.dim() == 2 else R_native).squeeze()
+    phi_r = torsions(R_recon.unsqueeze(0) if R_recon.dim() == 2 else R_recon).squeeze()
     # wrap difference to [-pi, pi]
-    dphi  = torch.atan2(torch.sin(phi_n - phi_r), torch.cos(phi_n - phi_r))
+    dphi = torch.atan2(torch.sin(phi_n - phi_r), torch.cos(phi_n - phi_r))
     torsion_mad = dphi.abs().median().item()
 
     return {
-        "drmsd":        drmsd,
-        "contact_f1":   f1,
-        "angle_rmsd":   angle_rmsd,
-        "torsion_mad":  torsion_mad,
+        "drmsd": drmsd,
+        "contact_f1": f1,
+        "angle_rmsd": angle_rmsd,
+        "torsion_mad": torsion_mad,
     }
 
 
 def _verify_one(pdb_id: str, args) -> tuple[dict, object]:
     """Run verification for one PDB ID. Returns (results_dict, R_recon_tensor)."""
-    import torch
     import numpy as np
-    from calphaebm.geometry.reconstruct import (
-        verify_reconstruction, nerf_reconstruct, coords_to_internal, extract_anchor,
-    )
+    import torch
+
+    from calphaebm.evaluation.metrics.rmsd import drmsd as compute_drmsd
+    from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch
     from calphaebm.geometry.internal import bond_angles, torsions
-    from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch, drmsd as compute_drmsd
+    from calphaebm.geometry.reconstruct import (
+        coords_to_internal,
+        extract_anchor,
+        nerf_reconstruct,
+        verify_reconstruction,
+    )
 
     R, label = _load_ca_coords(pdb_id, args.chain, args.cache_dir)
     logger.info("Loaded %s — %d Cα atoms", label, R.shape[1])
 
-    results          = verify_reconstruction(R, bond=args.bond, atol=args.atol)
+    results = verify_reconstruction(R, bond=args.bond, atol=args.atol)
     results["label"] = label
 
     # Reconstruct
     theta, phi = coords_to_internal(R)
-    anchor     = extract_anchor(R)
-    R_recon    = nerf_reconstruct(theta, phi, anchor, bond=args.bond)
+    anchor = extract_anchor(R)
+    R_recon = nerf_reconstruct(theta, phi, anchor, bond=args.bond)
 
     # --- Angle preservation (should be machine precision) ---
     theta_r = bond_angles(R_recon)
-    phi_r   = torsions(R_recon)
+    phi_r = torsions(R_recon)
 
     theta_err = (theta - theta_r).abs()
-    dphi      = torch.atan2(torch.sin(phi - phi_r), torch.cos(phi - phi_r)).abs()
+    dphi = torch.atan2(torch.sin(phi - phi_r), torch.cos(phi - phi_r)).abs()
 
-    results["theta_max_err"]  = theta_err.max().item()
+    results["theta_max_err"] = theta_err.max().item()
     results["theta_mean_err"] = theta_err.mean().item()
-    results["phi_max_err"]    = dphi.max().item()
-    results["phi_mean_err"]   = dphi.mean().item()
+    results["phi_max_err"] = dphi.max().item()
+    results["phi_mean_err"] = dphi.mean().item()
 
     # --- RMSD and dRMSD (Kabsch-aligned) ---
     R_n = R.squeeze(0).detach().numpy()
     R_r = R_recon.squeeze(0).detach().numpy()
-    results["rmsd"]  = rmsd_kabsch(R_n, R_r)
+    results["rmsd"] = rmsd_kabsch(R_n, R_r)
     results["drmsd"] = compute_drmsd(R_n, R_r, mode="nonlocal", exclude=2)
 
     # NeRF-placed bond length stats (atom 3+)
     nerf_bl_all = (R_recon[0, 3:] - R_recon[0, 2:-1]).norm(dim=-1)
     results["nerf_bl_mean"] = results["nerf_bond_lengths_mean"]
-    results["nerf_bl_std"]  = results["nerf_bond_lengths_std"]
-    results["nerf_bl_min"]  = nerf_bl_all.min().item()
-    results["nerf_bl_max"]  = nerf_bl_all.max().item()
+    results["nerf_bl_std"] = results["nerf_bond_lengths_std"]
+    results["nerf_bl_min"] = nerf_bl_all.min().item()
+    results["nerf_bl_max"] = nerf_bl_all.max().item()
 
     # Native (PDB) bond length stats
     bl_native = (R[0, 1:] - R[0, :-1]).norm(dim=-1)
     results["native_bl_mean"] = bl_native.mean().item()
-    results["native_bl_std"]  = bl_native.std().item()
-    results["native_bl_min"]  = bl_native.min().item()
-    results["native_bl_max"]  = bl_native.max().item()
+    results["native_bl_std"] = bl_native.std().item()
+    results["native_bl_min"] = bl_native.min().item()
+    results["native_bl_max"] = bl_native.max().item()
 
     # --- Structural integrity metrics ---
     results["structural"] = _structural_metrics(R, R_recon)
@@ -257,8 +266,9 @@ def _verify_one(pdb_id: str, args) -> tuple[dict, object]:
 def _print_result(results: dict, bond: float) -> bool:
     """Print full verification table for one structure. Returns True if passed."""
     import math
+
     label = results["label"]
-    L     = results["L"]
+    L = results["L"]
 
     sep = "=" * 62
     print(f"\n{sep}")
@@ -303,11 +313,15 @@ def _print_result(results: dict, bond: float) -> bool:
 
     # ── Angle preservation ──────────────────────────────────────────────
     print(f"\n  Angle preservation (round-trip IC error):")
-    print(f"    θ max error   {results['theta_max_err']:>10.6f} rad  "
-          f"({math.degrees(results['theta_max_err']):.4f}°)  expect ~0")
+    print(
+        f"    θ max error   {results['theta_max_err']:>10.6f} rad  "
+        f"({math.degrees(results['theta_max_err']):.4f}°)  expect ~0"
+    )
     print(f"    θ mean error  {results['theta_mean_err']:>10.6f} rad")
-    print(f"    φ max error   {results['phi_max_err']:>10.6f} rad  "
-          f"({math.degrees(results['phi_max_err']):.4f}°)  expect ~0")
+    print(
+        f"    φ max error   {results['phi_max_err']:>10.6f} rad  "
+        f"({math.degrees(results['phi_max_err']):.4f}°)  expect ~0"
+    )
     print(f"    φ mean error  {results['phi_mean_err']:>10.6f} rad")
 
     # ── Coordinate quality ──────────────────────────────────────────────
@@ -317,24 +331,29 @@ def _print_result(results: dict, bond: float) -> bool:
 
     # ── Bond length stats ───────────────────────────────────────────────
     print(f"\n  Bond lengths:")
-    print(f"    NeRF-placed    mean={results['nerf_bl_mean']:.6f}  "
-          f"std={results['nerf_bl_std']:.6f}  "
-          f"min={results['nerf_bl_min']:.6f}  "
-          f"max={results['nerf_bl_max']:.6f} Å  (atoms 3+, must be {bond:.1f})")
-    print(f"    Anchor (PDB)   mean={results['anchor_bond_lengths_mean']:.6f}  "
-          f"std={results['anchor_bond_lengths_std']:.6f} Å"
-          f"  (first 2 bonds — native, not fixed)")
-    print(f"    Native (PDB)   mean={results['native_bl_mean']:.6f}  "
-          f"std={results['native_bl_std']:.6f}  "
-          f"min={results['native_bl_min']:.6f}  "
-          f"max={results['native_bl_max']:.6f} Å")
+    print(
+        f"    NeRF-placed    mean={results['nerf_bl_mean']:.6f}  "
+        f"std={results['nerf_bl_std']:.6f}  "
+        f"min={results['nerf_bl_min']:.6f}  "
+        f"max={results['nerf_bl_max']:.6f} Å  (atoms 3+, must be {bond:.1f})"
+    )
+    print(
+        f"    Anchor (PDB)   mean={results['anchor_bond_lengths_mean']:.6f}  "
+        f"std={results['anchor_bond_lengths_std']:.6f} Å"
+        f"  (first 2 bonds — native, not fixed)"
+    )
+    print(
+        f"    Native (PDB)   mean={results['native_bl_mean']:.6f}  "
+        f"std={results['native_bl_std']:.6f}  "
+        f"min={results['native_bl_min']:.6f}  "
+        f"max={results['native_bl_max']:.6f} Å"
+    )
 
     # ── Contact map ─────────────────────────────────────────────────────
     sm = results.get("structural", {})
     if sm:
         print(f"\n  Contact map overlap:")
-        print(f"    Contact F1 (8 Å)  {sm['contact_f1']:>8.4f}   "
-              f"reconstructed vs native (expect ~1.0)")
+        print(f"    Contact F1 (8 Å)  {sm['contact_f1']:>8.4f}   " f"reconstructed vs native (expect ~1.0)")
 
     # ── Verdict ─────────────────────────────────────────────────────────
     verdict = "✅ ALL CHECKS PASSED" if all_pass else "❌ SOME CHECKS FAILED"
@@ -350,35 +369,36 @@ def _print_result(results: dict, bond: float) -> bool:
 
 def _print_verbose(R, bond: float) -> None:
     """Print NeRF-placed bond length details (10 worst bonds by deviation from ideal)."""
-    from calphaebm.geometry.reconstruct import (
-        nerf_reconstruct, coords_to_internal, extract_anchor,
-    )
+    from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
     theta, phi = coords_to_internal(R)
-    anchor     = extract_anchor(R)
-    R_recon    = nerf_reconstruct(theta, phi, anchor, bond=bond)
+    anchor = extract_anchor(R)
+    R_recon = nerf_reconstruct(theta, phi, anchor, bond=bond)
 
     # NeRF-placed bonds only: atom 3 onwards (anchor bonds are native, not placed)
-    nerf_bl  = (R_recon[:, 3:] - R_recon[:, 2:-1]).norm(dim=-1).squeeze()  # (L-3,)
-    bl_err   = (nerf_bl - bond).abs()
-    topk     = bl_err.topk(min(10, bl_err.shape[0]))
+    nerf_bl = (R_recon[:, 3:] - R_recon[:, 2:-1]).norm(dim=-1).squeeze()  # (L-3,)
+    bl_err = (nerf_bl - bond).abs()
+    topk = bl_err.topk(min(10, bl_err.shape[0]))
 
     # Native bond lengths for comparison
     native_bl = (R[:, 1:] - R[:, :-1]).norm(dim=-1).squeeze()  # (L-1,)
 
     print(f"\n  Native bond lengths (from PDB — NOT fixed at 3.8 Å):")
-    print(f"    mean={native_bl.mean():.4f}  std={native_bl.std():.4f}  "
-          f"min={native_bl.min():.4f}  max={native_bl.max():.4f}")
+    print(
+        f"    mean={native_bl.mean():.4f}  std={native_bl.std():.4f}  "
+        f"min={native_bl.min():.4f}  max={native_bl.max():.4f}"
+    )
 
     print(f"\n  NeRF-placed bond lengths (atom 3+, must be exactly {bond} Å):")
-    print(f"    mean={nerf_bl.mean():.6f}  std={nerf_bl.std():.6f}  "
-          f"min={nerf_bl.min():.6f}  max={nerf_bl.max():.6f}")
+    print(
+        f"    mean={nerf_bl.mean():.6f}  std={nerf_bl.std():.6f}  " f"min={nerf_bl.min():.6f}  max={nerf_bl.max():.6f}"
+    )
 
     print(f"\n  10 worst NeRF bond errors (deviation from {bond} Å):")
     print(f"    {'Bond':>8}  {'Length (Å)':>12}  {'Error (Å)':>11}")
     print(f"    {'--------':>8}  {'-----------':>12}  {'---------':>11}")
     for idx, err in zip(topk.indices.tolist(), topk.values.tolist()):
-        atom_i = idx + 2   # bond between atom idx+2 and idx+3
+        atom_i = idx + 2  # bond between atom idx+2 and idx+3
         bl_val = nerf_bl[idx].item()
         print(f"    {atom_i:>3}-{atom_i+1:<3}  {bl_val:>12.6f}  {err:>11.6f}")
 
@@ -386,19 +406,22 @@ def _print_verbose(R, bond: float) -> None:
 def _print_summary(rows: list) -> None:
     """Print multi-protein summary table."""
     import math
+
     W = 82
     print("\n" + "=" * W)
     print("  SUMMARY")
     print("=" * W)
     hdr = f"  {'PDB':<8}  {'L':>4}  {'RMSD(Å)':>9}  {'dRMSD(Å)':>9}  {'θ err(rad)':>11}  {'φ err(rad)':>11}  {'Max bl err':>11}  {'Result':>8}"
     print(hdr)
-    print("  " + "-"*(W-2))
+    print("  " + "-" * (W - 2))
     for row in rows:
-        label, L, ok, bstd, mdev, rmsd, drmsd, theta_err, phi_err = (list(row) + [float("nan")]*9)[:9]
+        label, L, ok, bstd, mdev, rmsd, drmsd, theta_err, phi_err = (list(row) + [float("nan")] * 9)[:9]
         status = "PASS ✅" if ok else "FAIL ❌"
         L_str = str(L) if isinstance(L, int) else L
-        print(f"  {label:<8}  {L_str:>4}  {rmsd:>9.4f}  {drmsd:>9.4f}  "
-              f"{theta_err:>11.6f}  {phi_err:>11.6f}  {mdev:>11.6f}  {status:>8}")
+        print(
+            f"  {label:<8}  {L_str:>4}  {rmsd:>9.4f}  {drmsd:>9.4f}  "
+            f"{theta_err:>11.6f}  {phi_err:>11.6f}  {mdev:>11.6f}  {status:>8}"
+        )
     print("=" * W)
     n_pass = sum(1 for row in rows if row[2])
     print(f"  {n_pass}/{len(rows)} passed")
@@ -407,10 +430,12 @@ def _print_summary(rows: list) -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+
 def run(args) -> int:
     from calphaebm.cli.commands.train.data_utils import parse_pdb_arg
-    pdb_ids      = parse_pdb_arg(args.pdb)
-    all_passed   = True
+
+    pdb_ids = parse_pdb_arg(args.pdb)
+    all_passed = True
     summary_rows = []
 
     for pdb_arg in pdb_ids:
@@ -421,21 +446,26 @@ def run(args) -> int:
             if args.verbose:
                 _print_verbose(R_recon, args.bond)
 
-            summary_rows.append((
-                results["label"], results["L"], ok,
-                results["nerf_bl_std"],
-                results["max_bond_error_from_ideal"],
-                results["rmsd"],
-                results["drmsd"],
-                results["theta_max_err"],
-                results["phi_max_err"],
-            ))
+            summary_rows.append(
+                (
+                    results["label"],
+                    results["L"],
+                    ok,
+                    results["nerf_bl_std"],
+                    results["max_bond_error_from_ideal"],
+                    results["rmsd"],
+                    results["drmsd"],
+                    results["theta_max_err"],
+                    results["phi_max_err"],
+                )
+            )
             if not ok:
                 all_passed = False
 
         except Exception as e:
             logger.error("Failed to verify %s: %s", pdb_arg, e)
             import traceback
+
             traceback.print_exc()
             summary_rows.append((pdb_arg.upper(), "?", False, float("nan"), float("nan")))
             all_passed = False

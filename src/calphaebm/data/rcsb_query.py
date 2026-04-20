@@ -12,9 +12,9 @@ Correctness fixes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Any
 import time
+from dataclasses import dataclass
+from typing import Any, List, Optional, Tuple
 
 import requests
 
@@ -29,11 +29,12 @@ _DEFAULT_BACKOFF_S = 1.5
 @dataclass(frozen=True)
 class PolymerEntityInfo:
     """Information about a polymer entity from RCSB."""
+
     polymer_entity_id: str  # e.g., "1ABC_1"
-    entry_id: str           # e.g., "1ABC"
+    entry_id: str  # e.g., "1ABC"
     polymer_type: Optional[str]  # "Protein", "Polypeptide(L)", etc.
     cluster_id_70: Optional[str]  # 70% sequence identity cluster ID
-    resolution: Optional[float]   # Best resolution in Å (lower is better)
+    resolution: Optional[float]  # Best resolution in Å (lower is better)
 
 
 def _post_json(
@@ -151,9 +152,7 @@ def search_entries_xray_resolution(
         },
         "request_options": {
             "paginate": {"start": int(start), "rows": int(page_size)},
-            "sort": [
-                {"sort_by": "rcsb_entry_info.resolution_combined", "direction": "asc"}
-            ],
+            "sort": [{"sort_by": "rcsb_entry_info.resolution_combined", "direction": "asc"}],
         },
         "return_type": "entry",
     }
@@ -275,16 +274,18 @@ def is_protein_only_entry(pe_list: List[PolymerEntityInfo]) -> bool:
 # Biological assembly (multimer) queries
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class AssemblyInfo:
     """Biological assembly information for a PDB entry."""
+
     entry_id: str
-    oligomeric_state: str       # "Monomer", "Homo 2-mer", "Hetero 4-mer", etc.
-    oligomeric_count: int       # 1 for monomer, 2 for dimer, etc.
-    stoichiometry: List[str]    # e.g. ["A2"] for homodimer
-    symmetry: str               # e.g. "C2", "C1", "D2"
-    kind: str                   # "Global Symmetry", etc.
-    is_monomer: bool            # convenience flag
+    oligomeric_state: str  # "Monomer", "Homo 2-mer", "Hetero 4-mer", etc.
+    oligomeric_count: int  # 1 for monomer, 2 for dimer, etc.
+    stoichiometry: List[str]  # e.g. ["A2"] for homodimer
+    symmetry: str  # e.g. "C2", "C1", "D2"
+    kind: str  # "Global Symmetry", etc.
+    is_monomer: bool  # convenience flag
 
 
 def get_assembly_info_batch(
@@ -331,7 +332,7 @@ def get_assembly_info_batch(
                 symbol = "C1"
                 kind = "unknown"
 
-            is_mono = (oligo_state == "Monomer")
+            is_mono = oligo_state == "Monomer"
 
             results[entry_id.lower()] = AssemblyInfo(
                 entry_id=entry_id.lower(),
@@ -348,6 +349,7 @@ def get_assembly_info_batch(
 
         if delay > 0:
             import time as _time
+
             _time.sleep(delay)
 
     return results
@@ -371,6 +373,7 @@ def filter_multimers(
         (monomer_ids, multimer_ids, assembly_info_dict)
     """
     from calphaebm.utils.logging import get_logger
+
     _logger = get_logger()
 
     sess = session or requests.Session()
@@ -386,8 +389,7 @@ def filter_multimers(
 
         if verbose and (i + 1) % 500 == 0:
             n_multi = sum(1 for v in all_info.values() if not v.is_monomer)
-            _logger.info("  %d/%d checked (%d multimers found)",
-                        i + 1, len(entry_ids), n_multi)
+            _logger.info("  %d/%d checked (%d multimers found)", i + 1, len(entry_ids), n_multi)
 
     monomers = []
     multimers = []
@@ -402,12 +404,15 @@ def filter_multimers(
 
     if verbose:
         from collections import Counter
+
         states = Counter(v.oligomeric_state for v in all_info.values() if not v.is_monomer)
-        _logger.info("Assembly filter: %d monomers, %d multimers, %d unknown",
-                     len(monomers), len(multimers),
-                     len(entry_ids) - len(monomers) - len(multimers))
+        _logger.info(
+            "Assembly filter: %d monomers, %d multimers, %d unknown",
+            len(monomers),
+            len(multimers),
+            len(entry_ids) - len(monomers) - len(multimers),
+        )
         if states:
-            _logger.info("  Multimer breakdown: %s",
-                        ", ".join(f"{k}: {v}" for k, v in states.most_common()))
+            _logger.info("  Multimer breakdown: %s", ", ".join(f"{k}: {v}" for k, v in states.most_common()))
 
     return monomers, multimers, all_info

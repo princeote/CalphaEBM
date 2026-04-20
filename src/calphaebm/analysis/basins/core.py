@@ -10,30 +10,34 @@ from typing import Optional
 
 import numpy as np
 
-from calphaebm.utils.logging import get_logger
 from calphaebm.data.id_utils import normalize_to_entry_ids
+from calphaebm.utils.logging import get_logger
 
+from .clustering import cluster_angles_gmm, cluster_angles_kmeans, get_basin_names
 from .config import (
     DEFAULT_CACHE_DIR,
-    DEFAULT_PDB_LIST,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_N_BASINS,
+    DEFAULT_CIRCULAR_PHI,
     DEFAULT_CLUSTER_METHOD,
-    DEFAULT_RANDOM_STATE,
-    DEFAULT_MAX_PDBS,
     DEFAULT_MAX_CHAINS,
+    DEFAULT_MAX_PDBS,
+    DEFAULT_N_BASINS,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PDB_LIST,
+    DEFAULT_PLOT_MAX_POINTS,
+    DEFAULT_PSEUDOCOUNT,
+    DEFAULT_RANDOM_STATE,
     DEFAULT_SAMPLE_EVERY,
     DEFAULT_SMOOTH_SIGMA,
-    DEFAULT_PSEUDOCOUNT,
-    DEFAULT_CIRCULAR_PHI,
     DEFAULT_STANDARDIZE,
-    DEFAULT_PLOT_MAX_POINTS,
-    THETA_MIN, THETA_MAX, THETA_BINS,
-    PHI_MIN, PHI_MAX, PHI_BINS,
+    PHI_BINS,
+    PHI_MAX,
+    PHI_MIN,
+    THETA_BINS,
+    THETA_MAX,
+    THETA_MIN,
 )
 from .data_loader import load_angle_data
-from .clustering import cluster_angles_kmeans, cluster_angles_gmm, get_basin_names
-from .plots import plot_cluster_scatter, plot_basin_histogram, plot_basin_comparison
+from .plots import plot_basin_comparison, plot_basin_histogram, plot_cluster_scatter
 
 logger = get_logger()
 
@@ -121,9 +125,9 @@ class BasinAnalyzer:
             logger.info(f"Loading (θ,φ) pairs from cache: {cache_path}")
             data = np.load(cache_path)
             self.theta = data["theta"]
-            self.phi   = data["phi"]
+            self.phi = data["phi"]
             self.load_stats = None
-            self.failures   = []
+            self.failures = []
             logger.info(f"Loaded {len(self.theta)} (θ,φ) pairs from cache")
             return
 
@@ -139,7 +143,7 @@ class BasinAnalyzer:
 
         self.theta, self.phi = theta, phi
         self.load_stats = stats
-        self.failures   = failures
+        self.failures = failures
 
         np.savez(cache_path, theta=theta, phi=phi)
         logger.info(f"Saved (θ,φ) cache ({len(theta)} pairs) → {cache_path}")
@@ -188,7 +192,7 @@ class BasinAnalyzer:
         used by backbone analysis, so edges are always consistent.
         """
         theta_edges = np.linspace(THETA_MIN, THETA_MAX, THETA_BINS + 1, dtype=np.float32)
-        phi_edges   = np.linspace(PHI_MIN,   PHI_MAX,   PHI_BINS + 1,   dtype=np.float32)
+        phi_edges = np.linspace(PHI_MIN, PHI_MAX, PHI_BINS + 1, dtype=np.float32)
         return theta_edges, phi_edges
 
     def save_histograms(self) -> None:
@@ -203,7 +207,7 @@ class BasinAnalyzer:
 
         # Save edge files so SecondaryStructureEnergy (BasinPotential) can load them
         np.save(self.data_dir / "theta_edges_deg.npy", theta_edges)
-        np.save(self.data_dir / "phi_edges_deg.npy",   phi_edges)
+        np.save(self.data_dir / "phi_edges_deg.npy", phi_edges)
         logger.info(f"Saved edge files -> {self.data_dir}/theta_edges_deg.npy, phi_edges_deg.npy")
 
         energies: list[np.ndarray] = []
@@ -230,6 +234,7 @@ class BasinAnalyzer:
             if self.smooth_sigma > 0:
                 try:
                     from scipy.ndimage import gaussian_filter
+
                     hist = gaussian_filter(hist, sigma=self.smooth_sigma, mode=("nearest", "wrap"))
                 except ImportError:
                     logger.warning("scipy not available, skipping smoothing")

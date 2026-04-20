@@ -1,19 +1,20 @@
 """Packing diagnostics and convergence detection for packing phase calibration."""
 
-import torch
 import math
 from collections import deque
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
-from calphaebm.utils.logging import get_logger
+import torch
+
 from calphaebm.training.logging.diagnostics import ExponentialMovingAverage
+from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
 
 class PackingConvergenceDetector:
     """Sophisticated convergence detection for packing phase."""
-    
+
     def __init__(
         self,
         patience_steps: int = 500,
@@ -49,10 +50,10 @@ class PackingConvergenceDetector:
 
         self.history = deque(maxlen=max(window, 20))
         self._last_step = None
-        
+
     def update(self, step: int, ema_delta: Optional[float], ema_correct: Optional[float]) -> Tuple[bool, str]:
         """Check if packing has converged.
-        
+
         Returns:
             (converged, reason)
         """
@@ -64,8 +65,12 @@ class PackingConvergenceDetector:
         self._last_step = step
 
         # Only store history if both EMAs are finite
-        if (ema_delta is not None and math.isfinite(ema_delta) and
-            ema_correct is not None and math.isfinite(ema_correct)):
+        if (
+            ema_delta is not None
+            and math.isfinite(ema_delta)
+            and ema_correct is not None
+            and math.isfinite(ema_correct)
+        ):
             self.history.append((step, ema_delta, ema_correct))
 
         # Best update (minimizing ΔE) - only if we have valid delta
@@ -75,7 +80,7 @@ class PackingConvergenceDetector:
                 self.best_ema_delta = ema_delta
                 self.best_step = step
                 self.steps_since_improvement = 0
-                
+
                 # Log significant improvements (avoid inf in first log)
                 if math.isfinite(old_best):
                     improvement = old_best - ema_delta
@@ -94,14 +99,13 @@ class PackingConvergenceDetector:
             return False, f"insufficient history ({len(self.history)}/{self.window})"
 
         # Need valid current values for plateau check
-        if (ema_delta is None or not math.isfinite(ema_delta) or
-            ema_correct is None or not math.isfinite(ema_correct)):
+        if ema_delta is None or not math.isfinite(ema_delta) or ema_correct is None or not math.isfinite(ema_correct):
             return False, "invalid current metrics"
 
         # Plateau check once patience exceeded
         if self.steps_since_improvement >= self.patience_steps:
             # Get window endpoints
-            recent = list(self.history)[-self.window:]
+            recent = list(self.history)[-self.window :]
             _, d0, c0 = recent[0]
             _, d1, c1 = recent[-1]
 
@@ -126,17 +130,17 @@ class PackingConvergenceDetector:
 
 class PackingDiagnostics:
     """Diagnostics for packing term learning."""
-    
+
     def __init__(self, window_size=10):
         self.E_pos_history = deque(maxlen=window_size)
         self.E_neg_history = deque(maxlen=window_size)
         self.delta_E_history = deque(maxlen=window_size)
         self.correct_order_history = deque(maxlen=window_size)
-        
+
         # EMAs for tracking trends
         self.ema_delta = ExponentialMovingAverage(0.95)
         self.ema_correct = ExponentialMovingAverage(0.95)
-        
+
         # Convergence detector
         self.convergence_detector = PackingConvergenceDetector(
             patience_steps=500,
@@ -147,11 +151,11 @@ class PackingDiagnostics:
             target_delta=-0.02,
             target_correct=0.60,
         )
-        
+
         # Store last convergence result
         self._last_converged = False
         self._last_reason = ""
-        
+
     def log(self, E_pos: torch.Tensor, E_neg: torch.Tensor, step: int, n_pairs: int):
         """Log packing diagnostics."""
         with torch.no_grad():
@@ -159,27 +163,25 @@ class PackingDiagnostics:
             E_neg_mean = E_neg.mean().item()
             delta_E = (E_pos - E_neg).mean().item()
             correct_order = (E_pos < E_neg).float().mean().item()
-            
+
             self.E_pos_history.append((step, E_pos_mean))
             self.E_neg_history.append((step, E_neg_mean))
             self.delta_E_history.append((step, delta_E))
             self.correct_order_history.append((step, correct_order))
-            
+
             # Update EMAs
             ema_delta = self.ema_delta.update(delta_E)
             ema_correct = self.ema_correct.update(correct_order)
-            
+
             # Check convergence and store result
-            self._last_converged, self._last_reason = self.convergence_detector.update(
-                step, ema_delta, ema_correct
-            )
-            
+            self._last_converged, self._last_reason = self.convergence_detector.update(step, ema_delta, ema_correct)
+
             # Format values for logging (handle None)
             delta_str = f"{delta_E:.4f}" if math.isfinite(delta_E) else "NaN"
             ema_delta_str = f"{ema_delta:.4f}" if ema_delta is not None else "N/A"
             correct_str = f"{correct_order:.2%}" if math.isfinite(correct_order) else "NaN"
             ema_correct_str = f"{ema_correct:.2%}" if ema_correct is not None else "N/A"
-            
+
             # Log with convergence status
             status = "CONVERGED" if self._last_converged else "training"
             logger.info(
@@ -189,25 +191,25 @@ class PackingDiagnostics:
                 f"correct={correct_str} (EMA={ema_correct_str}) | "
                 f"n_pairs={n_pairs} | {status}"
             )
-            
+
             return self._last_converged, self._last_reason
-    
+
     def has_converged(self) -> bool:
         """Check if packing has converged based on last detector result."""
         return self._last_converged
-    
+
     def summary(self):
         """Print summary of packing diagnostics."""
         if not self.delta_E_history:
             return
-        
+
         # Get current values (handle None)
         current_delta = self.ema_delta.value
         current_correct = self.ema_correct.value
-        
+
         delta_str = f"{current_delta:.4f}" if current_delta is not None else "N/A"
         correct_str = f"{current_correct:.2%}" if current_correct is not None else "N/A"
-        
+
         # Handle best value (might still be inf if no finite EMA observed)
         best_delta = self.convergence_detector.best_ema_delta
         if math.isfinite(best_delta):
@@ -216,7 +218,7 @@ class PackingDiagnostics:
         else:
             best_str = "N/A (no finite EMA observed)"
             best_step_str = "N/A"
-        
+
         logger.info(f"\n{'='*60}")
         logger.info(f"Packing Learning Summary")
         logger.info(f"{'='*60}")

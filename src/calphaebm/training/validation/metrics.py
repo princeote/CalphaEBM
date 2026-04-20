@@ -31,6 +31,7 @@ _dphi_cache: dict = {}
 # Cache loaders
 # ---------------------------------------------------------------------------
 
+
 def _load_rama_ref() -> Optional[tuple]:
     """Load and cache Ramachandran reference data.
 
@@ -39,9 +40,9 @@ def _load_rama_ref() -> Optional[tuple]:
     if "data" in _rama_cache:
         return _rama_cache["data"]
 
-    hist_path   = _DATA_DIR / "theta_phi_hist.npy"
-    theta_path  = _DATA_DIR / "theta_edges_deg.npy"
-    phi_path    = _DATA_DIR / "phi_edges_deg.npy"
+    hist_path = _DATA_DIR / "theta_phi_hist.npy"
+    theta_path = _DATA_DIR / "theta_edges_deg.npy"
+    phi_path = _DATA_DIR / "phi_edges_deg.npy"
 
     if not hist_path.exists():
         logger.warning(
@@ -53,16 +54,15 @@ def _load_rama_ref() -> Optional[tuple]:
         return None
 
     try:
-        ref_hist     = np.load(hist_path).astype(np.float64)
-        theta_edges  = np.load(theta_path) if theta_path.exists() else None
-        phi_edges    = np.load(phi_path)   if phi_path.exists()   else None
+        ref_hist = np.load(hist_path).astype(np.float64)
+        theta_edges = np.load(theta_path) if theta_path.exists() else None
+        phi_edges = np.load(phi_path) if phi_path.exists() else None
         _rama_cache["data"] = (ref_hist, theta_edges, phi_edges)
         logger.info(
-            "Loaded Ramachandran reference: shape=%s  "
-            "theta_edges=%s  phi_edges=%s",
+            "Loaded Ramachandran reference: shape=%s  " "theta_edges=%s  phi_edges=%s",
             ref_hist.shape,
             theta_edges.shape if theta_edges is not None else "inferred",
-            phi_edges.shape   if phi_edges   is not None else "inferred",
+            phi_edges.shape if phi_edges is not None else "inferred",
         )
         return _rama_cache["data"]
     except Exception as exc:
@@ -79,7 +79,7 @@ def _load_dphi_ref() -> Optional[tuple]:
     if "data" in _dphi_cache:
         return _dphi_cache["data"]
 
-    energy_path  = _DATA_DIR / "delta_phi_energy.npy"
+    energy_path = _DATA_DIR / "delta_phi_energy.npy"
     centers_path = _DATA_DIR / "delta_phi_centers.npy"
 
     if not energy_path.exists() or not centers_path.exists():
@@ -91,14 +91,16 @@ def _load_dphi_ref() -> Optional[tuple]:
         return None
 
     try:
-        ref_energy  = np.load(energy_path).astype(np.float64)
+        ref_energy = np.load(energy_path).astype(np.float64)
         ref_centers = np.load(centers_path).astype(np.float64)
-        ref_prob    = np.exp(-ref_energy)
-        ref_prob   /= ref_prob.sum()
+        ref_prob = np.exp(-ref_energy)
+        ref_prob /= ref_prob.sum()
         _dphi_cache["data"] = (ref_prob, ref_centers)
         logger.info(
             "Loaded Δφ reference: %d bins, center range [%.1f, %.1f]°",
-            len(ref_centers), ref_centers.min(), ref_centers.max(),
+            len(ref_centers),
+            ref_centers.min(),
+            ref_centers.max(),
         )
         return _dphi_cache["data"]
     except Exception as exc:
@@ -110,6 +112,7 @@ def _load_dphi_ref() -> Optional[tuple]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def compute_ramachandran_correlation(
     theta: torch.Tensor,
@@ -135,11 +138,13 @@ def compute_ramachandran_correlation(
 
     try:
         theta_deg = theta.cpu().numpy().flatten() * (180.0 / np.pi)
-        phi_deg   = phi.cpu().numpy().flatten()   * (-180.0 / np.pi)  # sign flip: matches secondary.py convention used when building reference
+        phi_deg = phi.cpu().numpy().flatten() * (
+            -180.0 / np.pi
+        )  # sign flip: matches secondary.py convention used when building reference
 
         valid = ~(np.isnan(theta_deg) | np.isnan(phi_deg))
         theta_deg = theta_deg[valid]
-        phi_deg   = phi_deg[valid]
+        phi_deg = phi_deg[valid]
 
         if theta_deg.size == 0:
             return 0.0
@@ -156,9 +161,9 @@ def compute_ramachandran_correlation(
         current_hist, _, _ = np.histogram2d(theta_deg, phi_deg, bins=[t_bins, p_bins])
 
         # Normalise with small epsilon to avoid zero-division
-        cur_flat  = current_hist.flatten() + 1e-8
+        cur_flat = current_hist.flatten() + 1e-8
         cur_flat /= cur_flat.sum()
-        ref_flat  = ref_hist.flatten() + 1e-8
+        ref_flat = ref_hist.flatten() + 1e-8
         ref_flat /= ref_flat.sum()
 
         corr = float(np.corrcoef(cur_flat, ref_flat)[0, 1])
@@ -188,7 +193,7 @@ def compute_delta_phi_correlation(phi: torch.Tensor) -> float:
     ref_prob, ref_centers = ref
 
     try:
-        phi_deg   = phi.cpu().numpy().flatten() * (180.0 / np.pi)
+        phi_deg = phi.cpu().numpy().flatten() * (180.0 / np.pi)
         delta_phi = np.diff(phi_deg)
         delta_phi = (delta_phi + 180.0) % 360.0 - 180.0  # wrap to (-180, 180]
 
@@ -197,7 +202,7 @@ def compute_delta_phi_correlation(phi: torch.Tensor) -> float:
 
         n_bins = len(ref_centers)
         current_hist, _ = np.histogram(delta_phi, bins=n_bins, range=(-180.0, 180.0))
-        cur_norm  = current_hist.astype(np.float64) + 1e-8
+        cur_norm = current_hist.astype(np.float64) + 1e-8
         cur_norm /= cur_norm.sum()
 
         corr = float(np.corrcoef(cur_norm, ref_prob)[0, 1])

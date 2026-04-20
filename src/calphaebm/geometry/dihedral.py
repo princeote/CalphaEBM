@@ -10,6 +10,7 @@ For Cα pseudo-torsions of four consecutive Cα atoms:
 This matches IUPAC, CHARMM, GROMACS, MDAnalysis conventions.
 """
 import torch
+
 from calphaebm.utils.math import safe_norm, wrap_to_pi
 
 
@@ -55,7 +56,7 @@ def dihedral(
     # Standard MD formula
     u = torch.cross(b0, b1, dim=-1)
     v = torch.cross(b1, b2, dim=-1)
-    w = torch.cross(b1, u, dim=-1)    # Standard: cross(b1, u), not cross(u, b1)
+    w = torch.cross(b1, u, dim=-1)  # Standard: cross(b1, u), not cross(u, b1)
 
     # FIX: Use epsilon-safe normalization instead of torch.where.
     # torch.where differentiates both branches, causing NaN Hessians when

@@ -18,12 +18,12 @@ from __future__ import annotations
 import math
 import os
 import tempfile
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 
-from calphaebm.utils.neighbors import pairwise_distances
 from calphaebm.utils.logging import get_logger
+from calphaebm.utils.neighbors import pairwise_distances
 
 logger = get_logger()
 
@@ -36,6 +36,7 @@ def _is_dataloader_worker() -> bool:
     """Best-effort detection of DataLoader workers."""
     try:
         from torch.utils.data import get_worker_info
+
         return get_worker_info() is not None
     except Exception:
         return False
@@ -127,37 +128,28 @@ class RepulsionCalibrator:
     def __init__(
         self,
         # Control parameters
-        target_frac: float = 0.03,   # e.g., 1/32 ≈ 0.03125
-        eta: float = 1.5,            # gain (dimensionless)
-
+        target_frac: float = 0.03,  # e.g., 1/32 ≈ 0.03125
+        eta: float = 1.5,  # gain (dimensionless)
         # EMA smoothing (to reduce quantization noise)
-        ema_alpha: float = 0.3,      # (0, 1] ; 1 = instant, smaller = smoother
-
+        ema_alpha: float = 0.3,  # (0, 1] ; 1 = instant, smaller = smoother
         # Deadband (ignore small errors)
-        deadband: float = 0.01,      # absolute fraction, e.g. 0.01 = ±1.0%
-
+        deadband: float = 0.01,  # absolute fraction, e.g. 0.01 = ±1.0%
         # Safety thresholds (Å)
-        catastrophic_min: float = 2.8,   # <= triggers catastrophic multiplier + cooldown
+        catastrophic_min: float = 2.8,  # <= triggers catastrophic multiplier + cooldown
         early_warning_min: float = 3.2,  # must be > catastrophic_min
-
         # Early warning max multiplier at catastrophic_min (capped by max_step_ratio)
         early_warning_max_mult: float = 1.2,
-
         # Cooldown after catastrophic events
         catastrophic_cooldown_steps: int = 25,
-
         # Update limits
         max_step_ratio: float = 1.5,
         max_lambda: float = 1000.0,
         min_lambda: float = 0.01,
-
         # Wall threshold (Å)
         wall_threshold: float = 4.5,
-
         # Nonbonded settings
         exclude: int = 3,
         max_dist_for_near: float = 8.0,
-
         # Debug
         debug_min_pair: bool = False,
         debug_once: bool = True,
@@ -269,8 +261,8 @@ class RepulsionCalibrator:
         _, mask_flat, flat_pair_idx = self._get_mask_and_indices(L, R.device, self.exclude)
         n_total = int(mask_flat.sum().item())
 
-        D_flat = D.reshape(batch_size, -1)        # (B, L*L)
-        all_distances = D_flat[:, mask_flat]      # (B, N_pairs)
+        D_flat = D.reshape(batch_size, -1)  # (B, L*L)
+        all_distances = D_flat[:, mask_flat]  # (B, N_pairs)
 
         if all_distances.numel() == 0:
             return {
@@ -306,7 +298,11 @@ class RepulsionCalibrator:
 
         periodic = (step is not None) and (int(step) % 50 == 0)
 
-        if should_debug_close or (min_nonbonded_global <= self.catastrophic_min) or (min_nonbonded_global < self.early_warning_min):
+        if (
+            should_debug_close
+            or (min_nonbonded_global <= self.catastrophic_min)
+            or (min_nonbonded_global < self.early_warning_min)
+        ):
             flat_min_idx = int(all_distances.argmin().item())
             batch_idx = flat_min_idx // all_distances.shape[1]
             pair_idx_in_batch = flat_min_idx % all_distances.shape[1]
@@ -344,9 +340,7 @@ class RepulsionCalibrator:
                 self._has_logged_close_contact = True
 
             if seq_sep <= self.exclude:
-                raise RuntimeError(
-                    f"BUG: Found pair with |i-j|={seq_sep} <= exclude={self.exclude} in nonbonded mask!"
-                )
+                raise RuntimeError(f"BUG: Found pair with |i-j|={seq_sep} <= exclude={self.exclude} in nonbonded mask!")
 
         near_distances = all_distances[all_distances < self.max_dist_for_near]
         if near_distances.numel() > 0:

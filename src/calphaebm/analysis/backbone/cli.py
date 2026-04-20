@@ -8,8 +8,9 @@ import argparse
 from pathlib import Path
 
 from calphaebm.utils.logging import get_logger
+
+from .config import DEFAULT_CACHE_DIR, DEFAULT_OUTPUT_DIR, DEFAULT_PDB_LIST
 from .core import run_backbone_analysis
-from .config import DEFAULT_CACHE_DIR, DEFAULT_PDB_LIST, DEFAULT_OUTPUT_DIR
 
 logger = get_logger()
 

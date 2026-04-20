@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Any, Callable, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils.data import Dataset
@@ -72,11 +72,10 @@ class PDBSegmentDataset(Dataset):
             # Stable hash of IDs list
             ids_blob = "\n".join(pdb_ids_sorted).encode("utf-8")
             ids_hash = hashlib.sha256(ids_blob).hexdigest()[:12]
-            
+
             # Parameter string for cache invalidation
             param_str = (
-                f"{ids_hash}_L{seg_len}_S{stride}_J{max_ca_jump:.1f}"
-                f"_lim{limit_segments}_vg{int(validate_geometry)}"
+                f"{ids_hash}_L{seg_len}_S{stride}_J{max_ca_jump:.1f}" f"_lim{limit_segments}_vg{int(validate_geometry)}"
             )
             cache_hash = hashlib.sha256(param_str.encode("utf-8")).hexdigest()[:16]
             cache_name = f"segments_{cache_hash}.pt"
@@ -105,7 +104,7 @@ class PDBSegmentDataset(Dataset):
                 logger.info("Force reprocess enabled: ignoring cache")
             elif cache_processed and not cache_path.exists():
                 logger.info(f"No cache found at {cache_path}")
-            
+
             self.segments = self._load_segments(
                 pdb_ids=pdb_ids_sorted,
                 cache_dir=cache_dir,
@@ -115,7 +114,7 @@ class PDBSegmentDataset(Dataset):
                 limit_segments=limit_segments,
                 validate_geometry=validate_geometry,
             )
-            
+
             # Save to cache if enabled and we have segments
             if cache_processed and len(self.segments) > 0:
                 logger.info(f"Saving {len(self.segments)} segments to cache: {cache_path}")
@@ -196,14 +195,14 @@ class PDBSegmentDataset(Dataset):
         cache_path = Path(cache_path)
         if not cache_path.exists():
             raise FileNotFoundError(f"Cache file not found: {cache_path}")
-        
+
         # Create instance without loading
         instance = cls.__new__(cls)
-        instance.device = kwargs.get('device', None)
-        instance.transform = kwargs.get('transform', None)
-        instance.center_coords = kwargs.get('center_coords', True)
-        instance.return_dict = kwargs.get('return_dict', False)
-        
+        instance.device = kwargs.get("device", None)
+        instance.transform = kwargs.get("transform", None)
+        instance.center_coords = kwargs.get("center_coords", True)
+        instance.return_dict = kwargs.get("return_dict", False)
+
         # Load segments from cache
         logger.info(f"Loading dataset from cache: {cache_path}")
         try:
@@ -213,6 +212,6 @@ class PDBSegmentDataset(Dataset):
                 instance.segments = torch.load(cache_path)
         except Exception as e:
             raise RuntimeError(f"Failed to load cache: {e}")
-        
+
         logger.info(f"Loaded {len(instance.segments)} segments")
         return instance

@@ -36,29 +36,23 @@ from __future__ import annotations
 import json
 import math
 import random
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import sys
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from calphaebm.training.negative_collector import (
-    NegativeCollector,
-    NegativeExample,
-    CollectionStats,
-    FailureCategory,
-)
-from calphaebm.training.losses.balance_loss import energy_balance_loss
 from calphaebm.training.logging.diagnostics import DiagnosticLogger
 from calphaebm.training.logging.validation_logging import ValidationLogger
-from calphaebm.utils.logging import get_logger
+from calphaebm.training.losses.balance_loss import energy_balance_loss
+from calphaebm.training.negative_collector import CollectionStats, FailureCategory, NegativeCollector, NegativeExample
 from calphaebm.training.sc_defaults import SC_DEFAULTS as D
-
+from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
@@ -67,9 +61,11 @@ logger = get_logger()
 # Round result
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class RoundResult:
     """Result of one self-consistent round."""
+
     round_num: int
     # Collection stats
     n_negatives: int = 0
@@ -99,6 +95,7 @@ class RoundResult:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main trainer
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class SelfConsistentTrainer:
     """Self-consistent CG training loop.
@@ -169,7 +166,9 @@ class SelfConsistentTrainer:
         # Sampled negative losses (Cartesian, fully batched)
         lambda_sampled_hsm: float = D["lambda_sampled_hsm"],
         lambda_sampled_qf: float = D["lambda_sampled_qf"],
-        lambda_sampled_drmsd_funnel: float = D.get("lambda_sampled_drmsd_funnel", D.get("lambda_sampled_rg_funnel", 2.0)),
+        lambda_sampled_drmsd_funnel: float = D.get(
+            "lambda_sampled_drmsd_funnel", D.get("lambda_sampled_rg_funnel", 2.0)
+        ),
         lambda_sampled_gap: float = D["lambda_sampled_gap"],
         sc_margin: float = D["sc_margin"],
         # Saturating exponential margins (Run5)
@@ -287,14 +286,15 @@ class SelfConsistentTrainer:
         Same logic as full_phase.py's disable_subterms post-step clamp.
         """
         import math as _math
+
         _RAW_FLOOR = _math.log(_math.exp(1e-6) - 1)  # softplus^{-1}(~0)
 
         _SUBTERM_MAP = {
-            "geom":      ("packing",   "lambda_geom_raw"),
-            "contact":   ("packing",   "lambda_hp_raw"),
-            "ram":       ("secondary", "lambda_ram_raw"),
-            "hb_alpha":  ("secondary", "lambda_hb_alpha_raw"),
-            "hb_beta":   ("secondary", "lambda_hb_beta_raw"),
+            "geom": ("packing", "lambda_geom_raw"),
+            "contact": ("packing", "lambda_hp_raw"),
+            "ram": ("secondary", "lambda_ram_raw"),
+            "hb_alpha": ("secondary", "lambda_hb_alpha_raw"),
+            "hb_beta": ("secondary", "lambda_hb_beta_raw"),
         }
 
         with torch.no_grad():
@@ -343,8 +343,8 @@ class SelfConsistentTrainer:
 
             # Stack all negatives + natives — same L, no padding needed
             R_neg_t = torch.stack([n.R_negative for n in negs]).to(self.device)  # (N, L, 3)
-            R_nat_t = torch.stack([n.R_native for n in negs]).to(self.device)    # (N, L, 3)
-            seq_t = negs[0].seq.unsqueeze(0).expand(N, -1).to(self.device)      # (N, L)
+            R_nat_t = torch.stack([n.R_native for n in negs]).to(self.device)  # (N, L, 3)
+            seq_t = negs[0].seq.unsqueeze(0).expand(N, -1).to(self.device)  # (N, L)
             lengths_t = torch.tensor([L] * N, device=self.device)
 
             R_neg_t = R_neg_t.detach().requires_grad_(True)
@@ -357,8 +357,12 @@ class SelfConsistentTrainer:
 
                 # Single batched backward
                 grad_R = torch.autograd.grad(
-                    E.sum(), R_neg_t, create_graph=True,
-                )[0]  # (N, L, 3)
+                    E.sum(),
+                    R_neg_t,
+                    create_graph=True,
+                )[
+                    0
+                ]  # (N, L, 3)
 
                 # Target: Cartesian displacement
                 delta = R_neg_t.detach() - R_nat_t  # (N, L, 3)
@@ -447,9 +451,10 @@ class SelfConsistentTrainer:
 
             # ── Q-funnel (pairwise energy ordering) ──────────────────
             from calphaebm.training.losses.elt_losses import q_funnel_loss
+
             _qf_loss, _qf_n, _ = q_funnel_loss(
-                E_all, Q_all, m=self.funnel_m, alpha=self.funnel_alpha,
-                threshold=min_dq, clamp_max=5.0)
+                E_all, Q_all, m=self.funnel_m, alpha=self.funnel_alpha, threshold=min_dq, clamp_max=5.0
+            )
             if _qf_n > 0:
                 total_qf = total_qf + _qf_loss * _qf_n
                 n_qf += _qf_n
@@ -472,34 +477,30 @@ class SelfConsistentTrainer:
             # Full dRMSD computed from stored R_native / R_negative.
             # D_native materialised once per protein group; D_neg reuses
             # R_batch already on device — no extra cdist for R_native.
-            R_native_dev = R_batch[0]                          # (L, 3)
-            D_native = torch.cdist(
-                R_native_dev.unsqueeze(0), R_native_dev.unsqueeze(0)
-            ).squeeze(0)                                       # (L, L)
+            R_native_dev = R_batch[0]  # (L, 3)
+            D_native = torch.cdist(R_native_dev.unsqueeze(0), R_native_dev.unsqueeze(0)).squeeze(0)  # (L, L)
             idx_r = torch.arange(L, device=self.device)
-            triu_mask = (
-                (idx_r.unsqueeze(0) - idx_r.unsqueeze(1)).abs() >= 4
-            ) & (idx_r.unsqueeze(0) > idx_r.unsqueeze(1))     # upper triangle
-            d_nat_flat = D_native[triu_mask]                   # (n_pairs,)
+            triu_mask = ((idx_r.unsqueeze(0) - idx_r.unsqueeze(1)).abs() >= 4) & (
+                idx_r.unsqueeze(0) > idx_r.unsqueeze(1)
+            )  # upper triangle
+            d_nat_flat = D_native[triu_mask]  # (n_pairs,)
 
-            drmsd_vals = [0.0]   # native
+            drmsd_vals = [0.0]  # native
             for i in range(1, N):
-                D_i = torch.cdist(
-                    R_batch[i].unsqueeze(0), R_batch[i].unsqueeze(0)
-                ).squeeze(0)
+                D_i = torch.cdist(R_batch[i].unsqueeze(0), R_batch[i].unsqueeze(0)).squeeze(0)
                 d_i_flat = D_i[triu_mask]
-                drmsd_i = float(
-                    torch.sqrt(((d_i_flat - d_nat_flat) ** 2).mean()).item()
-                ) if d_nat_flat.numel() > 0 else 0.0
+                drmsd_i = (
+                    float(torch.sqrt(((d_i_flat - d_nat_flat) ** 2).mean()).item()) if d_nat_flat.numel() > 0 else 0.0
+                )
                 drmsd_vals.append(drmsd_i)
 
             drmsd_all_t = torch.tensor(drmsd_vals, device=self.device)
 
             from calphaebm.training.losses.elt_losses import drmsd_funnel_loss
+
             _dr_loss, _dr_n, _ = drmsd_funnel_loss(
-                E_all, drmsd_all_t,
-                m=self.funnel_m, alpha=self.funnel_alpha,
-                threshold=0.5, clamp_max=5.0)
+                E_all, drmsd_all_t, m=self.funnel_m, alpha=self.funnel_alpha, threshold=0.5, clamp_max=5.0
+            )
             if _dr_n > 0:
                 total_rg = total_rg + _dr_loss * _dr_n
                 n_rg += _dr_n
@@ -517,10 +518,10 @@ class SelfConsistentTrainer:
 
             # ── Gap ──────────────────────────────────────────────────
             # Q-scaled saturating margin: near-native negs get small margin
-            Q_neg_t = torch.tensor([neg.q for neg in negs],
-                                    device=self.device, dtype=torch.float32)
+            Q_neg_t = torch.tensor([neg.q for neg in negs], device=self.device, dtype=torch.float32)
             delta_Q = (1.0 - Q_neg_t).clamp(min=0.0)
             from calphaebm.training.losses.elt_losses import _saturating_margin
+
             required_gap = _saturating_margin(delta_Q, self.gap_m, self.gap_alpha)
             gaps = E_all[1:] - E_all[0] - required_gap
             gap_loss = torch.exp((-gaps).clamp(max=5.0))
@@ -549,27 +550,37 @@ class SelfConsistentTrainer:
         logger.info("  ROUND %d — COLLECTING NEGATIVES", round_num)
 
         # Multi-β collection: either discrete betas list or LogUniform per protein
-        import random as _rng
         import math as _math
+        import random as _rng
 
         if self.collect_betas is not None and isinstance(self.collect_betas, list):
             # Legacy: discrete betas, split proteins across them
             betas = self.collect_betas
             n_per_beta = max(1, self.collect_proteins // len(betas))
             total_proteins = n_per_beta * len(betas)
-            logger.info("  %d proteins/β × %d betas %s = %d total (sampler=%s, η=%.0e)",
-                         n_per_beta, len(betas), betas, total_proteins,
-                         self.sampler, self.collect_step_size)
+            logger.info(
+                "  %d proteins/β × %d betas %s = %d total (sampler=%s, η=%.0e)",
+                n_per_beta,
+                len(betas),
+                betas,
+                total_proteins,
+                self.sampler,
+                self.collect_step_size,
+            )
         else:
             # LogUniform β per protein: each protein gets its own temperature
             total_proteins = self.collect_proteins
             betas = None  # will sample per-protein below
-            logger.info("  %d proteins × β=L×LogU[%.2f,%.1f] (sampler=%s, η=%.0e)",
-                         total_proteins, self.collect_beta_min, self.collect_beta_max,
-                         self.sampler, self.collect_step_size)
+            logger.info(
+                "  %d proteins × β=L×LogU[%.2f,%.1f] (sampler=%s, η=%.0e)",
+                total_proteins,
+                self.collect_beta_min,
+                self.collect_beta_max,
+                self.sampler,
+                self.collect_step_size,
+            )
 
-        logger.info("  %d steps/protein, %d parallel workers",
-                     self.collect_steps, self.collect_n_workers)
+        logger.info("  %d steps/protein, %d parallel workers", self.collect_steps, self.collect_n_workers)
         logger.info("=" * 66)
 
         collector = NegativeCollector(
@@ -617,7 +628,7 @@ class SelfConsistentTrainer:
                     L = seq_batch[i].shape[0]
                 if L > self.collect_max_len:
                     continue
-                all_structures.append((R_batch[i:i+1, :L], seq_batch[i:i+1, :L], pdb_id, chain_id, L))
+                all_structures.append((R_batch[i : i + 1, :L], seq_batch[i : i + 1, :L], pdb_id, chain_id, L))
 
         # Build tasks
         all_tasks = []
@@ -628,7 +639,7 @@ class SelfConsistentTrainer:
                 n_sample = min(n_per_beta, len(all_structures))
                 selected = rng.sample(all_structures, n_sample)
                 logger.info("  β=%6.0f: %d proteins selected", beta, n_sample)
-                for (R_i, seq_i, pdb_id, chain_id, L) in selected:
+                for R_i, seq_i, pdb_id, chain_id, L in selected:
                     all_tasks.append((R_i.cpu(), seq_i.cpu(), beta, self.collect_steps, pdb_id, chain_id))
         else:
             # β = L × s, s ~ LogU[beta_min, beta_max]: scales with chain length, varied across rounds.
@@ -637,14 +648,19 @@ class SelfConsistentTrainer:
             selected = rng.sample(all_structures, n_sample)
             _log_smin = _math.log(self.collect_beta_min)
             _log_smax = _math.log(self.collect_beta_max)
-            for (R_i, seq_i, pdb_id, chain_id, L) in selected:
+            for R_i, seq_i, pdb_id, chain_id, L in selected:
                 scale = _math.exp(rng.uniform(_log_smin, _log_smax))
                 beta_i = float(L) * scale
                 all_tasks.append((R_i.cpu(), seq_i.cpu(), beta_i, self.collect_steps, pdb_id, chain_id))
             sampled_betas = [t[2] for t in all_tasks]
-            logger.info("  β=L×LogU[%.2f,%.1f] per protein: min=%.0f  max=%.0f  mean=%.0f",
-                         self.collect_beta_min, self.collect_beta_max,
-                         min(sampled_betas), max(sampled_betas), sum(sampled_betas)/len(sampled_betas))
+            logger.info(
+                "  β=L×LogU[%.2f,%.1f] per protein: min=%.0f  max=%.0f  mean=%.0f",
+                self.collect_beta_min,
+                self.collect_beta_max,
+                min(sampled_betas),
+                max(sampled_betas),
+                sum(sampled_betas) / len(sampled_betas),
+            )
 
         logger.info("  Total tasks: %d, workers: %d", len(all_tasks), self.collect_n_workers)
 
@@ -655,20 +671,22 @@ class SelfConsistentTrainer:
         total_stats = CollectionStats(n_steps=self.collect_steps)
         total_stats.n_proteins = total_proteins
         total_stats.n_negatives = len(all_negatives)
-        total_stats.proteins_with_failures = len(set(
-            (n.pdb_id, n.chain_id) for n in all_negatives
-        ))
+        total_stats.proteins_with_failures = len(set((n.pdb_id, n.chain_id) for n in all_negatives))
         for neg in all_negatives:
             cat = neg.category.value
             total_stats.category_counts[cat] = total_stats.category_counts.get(cat, 0) + 1
 
         import time
+
         total_stats.wall_time_sec = 0  # set by _collect_parallel timing
 
-        logger.info("  Multi-β total: %d negatives from %d/%d proteins (%s)",
-                     total_stats.n_negatives, total_stats.proteins_with_failures,
-                     total_stats.n_proteins,
-                     ", ".join(f"{k}={v}" for k, v in sorted(total_stats.category_counts.items())))
+        logger.info(
+            "  Multi-β total: %d negatives from %d/%d proteins (%s)",
+            total_stats.n_negatives,
+            total_stats.proteins_with_failures,
+            total_stats.n_proteins,
+            ", ".join(f"{k}={v}" for k, v in sorted(total_stats.category_counts.items())),
+        )
 
         return all_negatives, total_stats
 
@@ -690,16 +708,26 @@ class SelfConsistentTrainer:
         """
 
         logger.info("=" * 66)
-        logger.info("  ROUND %d — RETRAINING (%d steps, %d negatives)",
-                     round_num, self.retrain_steps, len(negatives))
+        logger.info("  ROUND %d — RETRAINING (%d steps, %d negatives)", round_num, self.retrain_steps, len(negatives))
         logger.info("  PDB batch: depth + balance + discrim (Cartesian noise, no NeRF)")
         logger.info("  Sampled:   HSM + Q-funnel + dRMSD-funnel + gap (Cartesian, fully batched)")
-        logger.info("  PDB:    λ_depth=%.2f  λ_bal=%.2e→%.3f (round %d/10)  λ_disc=%.2f",
-                     self.lambda_depth, 1e-6, self.lambda_balance, round_num, self.lambda_discrim)
-        logger.info("  Sampled: λ_hsm=%.2f  λ_qf=%.2f  λ_drmsd=%.2f  λ_gap=%.2f  margin=%.2f  lr=%.1e",
-                     self.lambda_sampled_hsm, self.lambda_sampled_qf,
-                     self.lambda_sampled_drmsd_funnel,
-                     self.lambda_sampled_gap, self.sc_margin, self.retrain_lr)
+        logger.info(
+            "  PDB:    λ_depth=%.2f  λ_bal=%.2e→%.3f (round %d/10)  λ_disc=%.2f",
+            self.lambda_depth,
+            1e-6,
+            self.lambda_balance,
+            round_num,
+            self.lambda_discrim,
+        )
+        logger.info(
+            "  Sampled: λ_hsm=%.2f  λ_qf=%.2f  λ_drmsd=%.2f  λ_gap=%.2f  margin=%.2f  lr=%.1e",
+            self.lambda_sampled_hsm,
+            self.lambda_sampled_qf,
+            self.lambda_sampled_drmsd_funnel,
+            self.lambda_sampled_gap,
+            self.sc_margin,
+            self.retrain_lr,
+        )
         logger.info("=" * 66)
 
         self.model.train()
@@ -710,7 +738,9 @@ class SelfConsistentTrainer:
 
         # Cosine schedule: lr → lr/10 over retrain_steps
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=self.retrain_steps, eta_min=self.retrain_lr / 10,
+            optimizer,
+            T_max=self.retrain_steps,
+            eta_min=self.retrain_lr / 10,
         )
 
         # Sample negatives into mini-batches for training
@@ -732,8 +762,11 @@ class SelfConsistentTrainer:
         running_balance = 0.0
         # Funnel diagnostic counts from training loss (#26 single source of truth)
         _latest_funnel_counts = {
-            "mean_slope": 0.0, "n_qf_pairs": 0, "n_qf_anti": 0,
-            "n_rg_pairs": 0, "n_rg_anti": 0,
+            "mean_slope": 0.0,
+            "n_qf_pairs": 0,
+            "n_qf_anti": 0,
+            "n_rg_pairs": 0,
+            "n_rg_anti": 0,
         }
         _lambda_bal_eff = self.lambda_balance  # updated per step by ramp
         _last_avg_depth = 0.0  # preserved across log resets for diagnostic block
@@ -797,7 +830,9 @@ class SelfConsistentTrainer:
                     _bal_t = min(1.0, (round_num - 1) / 10.0)
                     _lambda_bal_eff = 1e-6 + (self.lambda_balance - 1e-6) * _bal_t
                     loss_bal, _balance_absmeans, _balance_term_absmeans = energy_balance_loss(
-                        self.model, R, seq,
+                        self.model,
+                        R,
+                        seq,
                         r=float(getattr(self, "balance_r", 7.0)),
                         r_term=float(getattr(self, "balance_r_term", 4.0)),
                         lengths=lengths,
@@ -820,8 +855,8 @@ class SelfConsistentTrainer:
                     R_pert = R + noise * mask_d.float()
 
                     # Stack: even=native, odd=perturbed
-                    R_disc = torch.cat([R, R_pert], dim=0)          # (2B, L_max, 3)
-                    seq_disc = torch.cat([seq, seq], dim=0)          # (2B, L_max)
+                    R_disc = torch.cat([R, R_pert], dim=0)  # (2B, L_max, 3)
+                    seq_disc = torch.cat([seq, seq], dim=0)  # (2B, L_max)
                     lens_disc = torch.cat([lengths, lengths], dim=0)  # (2B,)
 
                     discrim_loss = torch.tensor(0.0, device=self.device)
@@ -855,7 +890,6 @@ class SelfConsistentTrainer:
             _loss_s_qf_val = None
             _loss_s_drmsd_val = None
             if self.lambda_sampled_gap > 0 and negatives:
-
                 # Group negatives by protein
                 neg_by_protein: Dict[str, List[NegativeExample]] = {}
                 for neg in negatives:
@@ -891,8 +925,10 @@ class SelfConsistentTrainer:
                     _fixed_dq = 0.05
                     _fixed_dd = 0.05
                     fg = self._funnel_gap_on_negatives(
-                        neg_batch, gap_margin=self.sc_margin,
-                        min_dq=_fixed_dq, min_ddelta=_fixed_dd,
+                        neg_batch,
+                        gap_margin=self.sc_margin,
+                        min_dq=_fixed_dq,
+                        min_ddelta=_fixed_dd,
                     )
                     # Gap
                     if torch.isfinite(fg["gap"]):
@@ -996,13 +1032,26 @@ class SelfConsistentTrainer:
                 parts.append(f"depth={self.lambda_depth * avg_depth:.3f}({self.lambda_depth:.1e}x{avg_depth:.1f})")
                 parts.append(f"bal={_lambda_bal_eff * avg_bal:.3f}({_lambda_bal_eff:.1e}x{avg_bal:.0f})")
                 parts.append(f"disc={self.lambda_discrim * avg_disc:.3f}({self.lambda_discrim:.1e}x{avg_disc:.1f})")
-                parts.append(f"s_hsm={self.lambda_sampled_hsm * avg_s_hsm:.3f}({self.lambda_sampled_hsm:.1e}x{avg_s_hsm:.1f})")
-                parts.append(f"s_qf={self.lambda_sampled_qf * avg_s_qf:.3f}({self.lambda_sampled_qf:.1e}x{avg_s_qf:.1f})")
-                parts.append(f"s_drmsd={self.lambda_sampled_drmsd_funnel * avg_s_drmsd:.3f}({self.lambda_sampled_drmsd_funnel:.1e}x{avg_s_drmsd:.1f})")
-                parts.append(f"s_gap={self.lambda_sampled_gap * avg_sampled_gap:.3f}({self.lambda_sampled_gap:.1e}x{avg_sampled_gap:.1f})")
-                logger.info("  [SC round %d] step %d/%d | lr=%.1e | %s",
-                            round_num, step, self.retrain_steps, lr,
-                            "  ".join(parts))
+                parts.append(
+                    f"s_hsm={self.lambda_sampled_hsm * avg_s_hsm:.3f}({self.lambda_sampled_hsm:.1e}x{avg_s_hsm:.1f})"
+                )
+                parts.append(
+                    f"s_qf={self.lambda_sampled_qf * avg_s_qf:.3f}({self.lambda_sampled_qf:.1e}x{avg_s_qf:.1f})"
+                )
+                parts.append(
+                    f"s_drmsd={self.lambda_sampled_drmsd_funnel * avg_s_drmsd:.3f}({self.lambda_sampled_drmsd_funnel:.1e}x{avg_s_drmsd:.1f})"
+                )
+                parts.append(
+                    f"s_gap={self.lambda_sampled_gap * avg_sampled_gap:.3f}({self.lambda_sampled_gap:.1e}x{avg_sampled_gap:.1f})"
+                )
+                logger.info(
+                    "  [SC round %d] step %d/%d | lr=%.1e | %s",
+                    round_num,
+                    step,
+                    self.retrain_steps,
+                    lr,
+                    "  ".join(parts),
+                )
                 running_loss = 0.0
                 running_s_hsm = 0.0
                 running_s_qf = 0.0
@@ -1038,18 +1087,25 @@ class SelfConsistentTrainer:
                     _drmsd_af_pct = 100.0 * _n_dr_anti / max(_n_dr_pairs, 1)
                     _precomputed_sc["funnel"] = {
                         "mean_slope": _mean_slope,
-                        "q_af": _q_af_pct, "drmsd_af": _drmsd_af_pct,
-                        "n_qf_pairs": _n_qf_pairs, "n_qf_anti": _n_qf_anti,
-                        "n_dr_pairs": _n_dr_pairs, "n_dr_anti": _n_dr_anti,
+                        "q_af": _q_af_pct,
+                        "drmsd_af": _drmsd_af_pct,
+                        "n_qf_pairs": _n_qf_pairs,
+                        "n_qf_anti": _n_qf_anti,
+                        "n_dr_pairs": _n_dr_pairs,
+                        "n_dr_anti": _n_dr_anti,
                     }
                     # Discrimination gaps from training step
                     if _discrim_diag_step:
                         _precomputed_sc["disc_gaps"] = _discrim_diag_step
 
                     diag_logger.log_step_block(
-                        phase_step=step, n_steps=self.retrain_steps,
-                        loss=total_loss.item(), lr=lr_now,
-                        R=R_diag, seq=seq_diag, lengths=lengths,
+                        phase_step=step,
+                        n_steps=self.retrain_steps,
+                        loss=total_loss.item(),
+                        lr=lr_now,
+                        R=R_diag,
+                        seq=seq_diag,
+                        lengths=lengths,
                         # Balance
                         loss_balance=running_balance / max(step, 1),
                         lambda_balance=self.lambda_balance,
@@ -1073,13 +1129,21 @@ class SelfConsistentTrainer:
                     # SC-specific: sampled loss summary
                     sc_parts = []
                     if _loss_s_hsm_val is not None:
-                        sc_parts.append(f"s_hsm={self.lambda_sampled_hsm * _loss_s_hsm_val:.3f}({self.lambda_sampled_hsm:.1e}x{_loss_s_hsm_val:.1f})")
+                        sc_parts.append(
+                            f"s_hsm={self.lambda_sampled_hsm * _loss_s_hsm_val:.3f}({self.lambda_sampled_hsm:.1e}x{_loss_s_hsm_val:.1f})"
+                        )
                     if _loss_s_qf_val is not None:
-                        sc_parts.append(f"s_qf={self.lambda_sampled_qf * _loss_s_qf_val:.3f}({self.lambda_sampled_qf:.1e}x{_loss_s_qf_val:.1f})")
+                        sc_parts.append(
+                            f"s_qf={self.lambda_sampled_qf * _loss_s_qf_val:.3f}({self.lambda_sampled_qf:.1e}x{_loss_s_qf_val:.1f})"
+                        )
                     if _loss_s_drmsd_val is not None:
-                        sc_parts.append(f"s_drmsd={self.lambda_sampled_drmsd_funnel * _loss_s_drmsd_val:.3f}({self.lambda_sampled_drmsd_funnel:.1e}x{_loss_s_drmsd_val:.1f})")
+                        sc_parts.append(
+                            f"s_drmsd={self.lambda_sampled_drmsd_funnel * _loss_s_drmsd_val:.3f}({self.lambda_sampled_drmsd_funnel:.1e}x{_loss_s_drmsd_val:.1f})"
+                        )
                     if _loss_s_gap_val is not None:
-                        sc_parts.append(f"s_gap={self.lambda_sampled_gap * _loss_s_gap_val:.3f}({self.lambda_sampled_gap:.1e}x{_loss_s_gap_val:.1f})")
+                        sc_parts.append(
+                            f"s_gap={self.lambda_sampled_gap * _loss_s_gap_val:.3f}({self.lambda_sampled_gap:.1e}x{_loss_s_gap_val:.1f})"
+                        )
                     if sc_parts:
                         logger.info("  Sampled:  %s", "  ".join(sc_parts))
 
@@ -1126,19 +1190,26 @@ class SelfConsistentTrainer:
                     L = seq_batch[i].shape[0]
                 if L > max_eval_len:
                     continue  # skip proteins that are too long
-                structures.append((
-                    R_batch[i, :L].cpu().detach(),
-                    seq_batch[i, :L].cpu().detach(),
-                    pdb_ids[i] if isinstance(pdb_ids, (list, tuple)) else str(pdb_ids),
-                    chain_ids[i] if isinstance(chain_ids, (list, tuple)) else str(chain_ids),
-                    L,
-                ))
+                structures.append(
+                    (
+                        R_batch[i, :L].cpu().detach(),
+                        seq_batch[i, :L].cpu().detach(),
+                        pdb_ids[i] if isinstance(pdb_ids, (list, tuple)) else str(pdb_ids),
+                        chain_ids[i] if isinstance(chain_ids, (list, tuple)) else str(chain_ids),
+                        L,
+                    )
+                )
             if len(structures) >= self.eval_proteins:
                 break
 
         n_structs = len(structures)
-        logger.info("  Running %d structures (L≤%d) at beta=%.1f (%d Langevin steps)...",
-                     n_structs, max_eval_len, self.eval_beta, self.eval_steps)
+        logger.info(
+            "  Running %d structures (L≤%d) at beta=%.1f (%d Langevin steps)...",
+            n_structs,
+            max_eval_len,
+            self.eval_beta,
+            self.eval_steps,
+        )
 
         # ── Prepare model for fork — same pattern as negative collection ──
         # 1. Save original device/model refs
@@ -1146,7 +1217,7 @@ class SelfConsistentTrainer:
         # 3. Disable autograd multithreading (prevents fork crash)
         # 4. Fork workers inherit CPU model via COW
         # 5. Restore everything in finally block
-        original_device = self.device if hasattr(self, 'device') else next(self.model.parameters()).device
+        original_device = self.device if hasattr(self, "device") else next(self.model.parameters()).device
         original_model = self.model
 
         # Move to CPU, deepcopy — keep on CPU until AFTER fork completes.
@@ -1165,20 +1236,27 @@ class SelfConsistentTrainer:
         # Build worker args — all tensors CPU
         worker_args = []
         for R, seq_t, pdb_id, chain_id, L in structures:
-            worker_args.append((
-                model_cpu,
-                R.unsqueeze(0).cpu(), seq_t.unsqueeze(0).cpu(),
-                torch.tensor([L]),
-                L, 1e-4, self.eval_beta, 100.0, self.eval_steps,
-            ))
+            worker_args.append(
+                (
+                    model_cpu,
+                    R.unsqueeze(0).cpu(),
+                    seq_t.unsqueeze(0).cpu(),
+                    torch.tensor([L]),
+                    L,
+                    1e-4,
+                    self.eval_beta,
+                    100.0,
+                    self.eval_steps,
+                )
+            )
 
         # ── Parallel eval via SUBPROCESS — avoids CUDA/autograd fork crash ──
         # After 3000 GPU backward passes, autograd's thread pool persists and
         # corrupts fork.  Solution: launch a fresh Python process that has never
         # touched CUDA, which can fork safely.
+        import os
         import subprocess
         import tempfile
-        import os
 
         n_workers = min(n_structs, self.eval_proteins)
         logger.info("  Using subprocess wrapper -> %d fork workers (clean process)", n_workers)
@@ -1190,19 +1268,27 @@ class SelfConsistentTrainer:
         result_path = os.path.join(tmp_dir, "results.pt")
 
         torch.save(model_cpu, model_path)
-        torch.save({"structures": [(R, seq, pid, cid, L)
-                     for R, seq, pid, cid, L in structures]}, struct_path)
+        torch.save({"structures": [(R, seq, pid, cid, L) for R, seq, pid, cid, L in structures]}, struct_path)
 
         try:
             cmd = [
-                sys.executable, "-m", "calphaebm.evaluation.eval_subprocess",
-                "--model-path", model_path,
-                "--structures-path", struct_path,
-                "--results-path", result_path,
-                "--n-workers", str(n_workers),
-                "--beta", str(self.eval_beta),
-                "--n-steps", str(self.eval_steps),
-                "--sampler", self.sampler,
+                sys.executable,
+                "-m",
+                "calphaebm.evaluation.eval_subprocess",
+                "--model-path",
+                model_path,
+                "--structures-path",
+                struct_path,
+                "--results-path",
+                result_path,
+                "--n-workers",
+                str(n_workers),
+                "--beta",
+                str(self.eval_beta),
+                "--n-steps",
+                str(self.eval_steps),
+                "--sampler",
+                self.sampler,
             ]
             logger.info("  Launching: %s", " ".join(cmd[-6:]))
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -1217,17 +1303,28 @@ class SelfConsistentTrainer:
                 raise RuntimeError("Eval subprocess timed out")
             if proc.returncode != 0:
                 stderr_out = proc.stderr.read() if proc.stderr else ""
-                logger.warning("  Subprocess failed (rc=%d): %s", proc.returncode,
-                               stderr_out[-500:] if stderr_out else "no stderr")
+                logger.warning(
+                    "  Subprocess failed (rc=%d): %s", proc.returncode, stderr_out[-500:] if stderr_out else "no stderr"
+                )
                 raise RuntimeError(f"Eval subprocess failed: rc={proc.returncode}")
 
             results = torch.load(result_path, map_location="cpu", weights_only=False)
         except Exception as e:
             logger.error("Subprocess eval failed: %s", e)
-            results = [{"L": s[4], "e_delta": 0.0, "rmsd": 99.0,
-                        "q": 0.0, "rg_ratio": 0.0, "rmsf": 0.0,
-                        "error": str(e), "theta": None, "phi": None}
-                       for s in structures]
+            results = [
+                {
+                    "L": s[4],
+                    "e_delta": 0.0,
+                    "rmsd": 99.0,
+                    "q": 0.0,
+                    "rg_ratio": 0.0,
+                    "rmsf": 0.0,
+                    "error": str(e),
+                    "theta": None,
+                    "phi": None,
+                }
+                for s in structures
+            ]
         finally:
             # Clean up temp files
             for f in [model_path, struct_path, result_path]:
@@ -1244,8 +1341,10 @@ class SelfConsistentTrainer:
         dphi_corr = 0.0
         try:
             from calphaebm.training.validation.metrics import (
-                compute_ramachandran_correlation, compute_delta_phi_correlation,
+                compute_delta_phi_correlation,
+                compute_ramachandran_correlation,
             )
+
             ok = [r for r in results if not r.get("error")]
             all_theta = [r["theta"] for r in ok if r.get("theta") is not None]
             all_phi = [r["phi"] for r in ok if r.get("phi") is not None]
@@ -1259,18 +1358,20 @@ class SelfConsistentTrainer:
                 theta_cat = torch.tensor(np.concatenate(paired_theta))
                 phi_cat = torch.tensor(np.concatenate(paired_phi))
                 rama_corr = compute_ramachandran_correlation(theta_cat, phi_cat)
-                dphi_corr = compute_delta_phi_correlation(
-                    torch.tensor(np.concatenate(all_phi))
-                )
+                dphi_corr = compute_delta_phi_correlation(torch.tensor(np.concatenate(all_phi)))
         except Exception as e:
             logger.debug("Rama/dphi correlation error: %s", e)
 
         # ── Structured eval logging via ValidationLogger ──────────────
         vlog = ValidationLogger()
         return vlog.log_eval_block(
-            round_num=round_num, beta=self.eval_beta, n_steps=self.eval_steps,
-            results=results, structures=structures,
-            rama_corr=rama_corr, dphi_corr=dphi_corr,
+            round_num=round_num,
+            beta=self.eval_beta,
+            n_steps=self.eval_steps,
+            results=results,
+            structures=structures,
+            rama_corr=rama_corr,
+            dphi_corr=dphi_corr,
         )
 
     def _save_checkpoint(self, round_num: int, tag: str = "") -> Path:
@@ -1278,21 +1379,24 @@ class SelfConsistentTrainer:
         suffix = f"_{tag}" if tag else ""
         ckpt_path = self.out_dir / f"sc_round{round_num:03d}{suffix}.pt"
         ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({
-            "model_state_dict": self.model.state_dict(),
-            "round_num": round_num,
-            "stage": "self-consistent",
-            "training": {
-                "funnel_m": self.funnel_m,
-                "funnel_alpha": self.funnel_alpha,
-                "gap_m": self.gap_m,
-                "gap_alpha": self.gap_alpha,
-                "sc_margin": self.sc_margin,
-                "retrain_lr": self.retrain_lr,
-                "collect_beta_min": self.collect_beta_min,
-                "collect_beta_max": self.collect_beta_max,
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "round_num": round_num,
+                "stage": "self-consistent",
+                "training": {
+                    "funnel_m": self.funnel_m,
+                    "funnel_alpha": self.funnel_alpha,
+                    "gap_m": self.gap_m,
+                    "gap_alpha": self.gap_alpha,
+                    "sc_margin": self.sc_margin,
+                    "retrain_lr": self.retrain_lr,
+                    "collect_beta_min": self.collect_beta_min,
+                    "collect_beta_max": self.collect_beta_max,
+                },
             },
-        }, ckpt_path)
+            ckpt_path,
+        )
         logger.info("  Saved checkpoint: %s", ckpt_path)
         return ckpt_path
 
@@ -1393,10 +1497,18 @@ class SelfConsistentTrainer:
         """
         logger.info("=" * 66)
         logger.info("  SELF-CONSISTENT CG TRAINING")
-        logger.info("  %d rounds  |  %d proteins/round  |  %dK steps/protein",
-                     n_rounds, self.collect_proteins, self.collect_steps // 1000)
-        logger.info("  Retrain: %d steps  |  λ_sampled_gap=%.2f  margin=%.2f",
-                     self.retrain_steps, self.lambda_sampled_gap, self.sc_margin)
+        logger.info(
+            "  %d rounds  |  %d proteins/round  |  %dK steps/protein",
+            n_rounds,
+            self.collect_proteins,
+            self.collect_steps // 1000,
+        )
+        logger.info(
+            "  Retrain: %d steps  |  λ_sampled_gap=%.2f  margin=%.2f",
+            self.retrain_steps,
+            self.lambda_sampled_gap,
+            self.sc_margin,
+        )
         if resume_round > 0:
             logger.info("  RESUMING from round %d", resume_round)
         logger.info("=" * 66)
@@ -1438,30 +1550,34 @@ class SelfConsistentTrainer:
         if resume_round > 0:
             ckpt_path = self.out_dir / f"sc_round{resume_round:03d}.pt"
             if ckpt_path.exists():
-                from calphaebm.utils.checkpoint import apply_config_overrides
                 from calphaebm.defaults import MODEL as _M
+                from calphaebm.utils.checkpoint import apply_config_overrides
 
                 ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
                 state_dict = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
                 self.model.load_state_dict(state_dict, strict=False)
                 ckpt_config = ckpt.get("config", ckpt.get("training", {}))
-                logger.info("  Loaded model from %s (round=%s)",
-                            ckpt_path, ckpt.get("round_num", "?"))
+                logger.info("  Loaded model from %s (round=%s)", ckpt_path, ckpt.get("round_num", "?"))
 
                 # Apply current intended values from defaults (replaces manual overrides)
-                apply_config_overrides(self.model, ckpt_config, {
-                    "packing.rg_lambda": _M["rg_lambda"],
-                    "packing.coord_lambda": _M["coord_lambda"],
-                    "packing.rg_dead_zone": _M["rg_dead_zone"],
-                    "packing.rg_m": _M["rg_m"],
-                    "packing.rg_alpha": _M["rg_alpha"],
-                    "packing.coord_m": _M["coord_m"],
-                    "packing.coord_alpha": _M["coord_alpha"],
-                })
+                apply_config_overrides(
+                    self.model,
+                    ckpt_config,
+                    {
+                        "packing.rg_lambda": _M["rg_lambda"],
+                        "packing.coord_lambda": _M["coord_lambda"],
+                        "packing.rg_dead_zone": _M["rg_dead_zone"],
+                        "packing.rg_m": _M["rg_m"],
+                        "packing.rg_alpha": _M["rg_alpha"],
+                        "packing.coord_m": _M["coord_m"],
+                        "packing.coord_alpha": _M["coord_alpha"],
+                    },
+                )
 
                 # Restore best_composite from ALL eval JSONs across rounds
                 # Fixes bug: best_composite resets to inf each bash invocation
                 import glob as _glob
+
                 _eval_jsons = sorted(_glob.glob(str(self.out_dir / "eval_round*.json")))
                 for _ef in _eval_jsons:
                     try:
@@ -1475,8 +1591,7 @@ class SelfConsistentTrainer:
                     except Exception:
                         pass
                 if self.best_round >= 0:
-                    logger.info("  Restored best: Composite=%.3f from round %d",
-                                self.best_composite, self.best_round)
+                    logger.info("  Restored best: Composite=%.3f from round %d", self.best_composite, self.best_round)
 
                 # Eval is decoupled — skip deferred eval, watcher handles it.
                 # Just load cached results if they exist for best_composite tracking.
@@ -1485,11 +1600,13 @@ class SelfConsistentTrainer:
                     with open(eval_json_path) as f:
                         eval_stats = json.load(f)
                     logger.info("  Loaded cached eval results from %s", eval_json_path)
-                    logger.info("  Cached eval: E_delta=%.3f  RMSD=%.2f  Q=%.3f  Composite=%.3f",
-                                 eval_stats.get("e_delta_mean", 0),
-                                 eval_stats.get("rmsd_mean", 0),
-                                 eval_stats.get("q_mean", 0),
-                                 eval_stats.get("composite", 0))
+                    logger.info(
+                        "  Cached eval: E_delta=%.3f  RMSD=%.2f  Q=%.3f  Composite=%.3f",
+                        eval_stats.get("e_delta_mean", 0),
+                        eval_stats.get("rmsd_mean", 0),
+                        eval_stats.get("q_mean", 0),
+                        eval_stats.get("composite", 0),
+                    )
                 else:
                     logger.info("  No cached eval for round %d — skipping (eval decoupled)", resume_round)
 
@@ -1504,14 +1621,16 @@ class SelfConsistentTrainer:
             for r in range(1, resume_round + 1):
                 loaded = self._load_negatives(r)
                 all_negatives.extend(loaded)
-            logger.info("  Loaded %d cumulative negatives from rounds 1-%d",
-                         len(all_negatives), resume_round)
+            logger.info("  Loaded %d cumulative negatives from rounds 1-%d", len(all_negatives), resume_round)
 
         for round_num in range(start_round, n_rounds + 1):
             # Check if previous run already fired early stop (#37)
             if _consecutive_increases >= 3:
-                logger.info("  SKIPPING round %d: early stop already fired (%d consecutive increases)",
-                            round_num, _consecutive_increases)
+                logger.info(
+                    "  SKIPPING round %d: early stop already fired (%d consecutive increases)",
+                    round_num,
+                    _consecutive_increases,
+                )
                 break
 
             t_round = time.time()
@@ -1521,8 +1640,7 @@ class SelfConsistentTrainer:
             # Skip collection only if this round's negatives exist on disk
             neg_dir = self.out_dir / f"negatives_round{round_num:03d}"
             if round_num <= resume_round and neg_dir.exists() and len(all_negatives) > 0:
-                logger.info("  Round %d: negatives already on disk (%s), skipping collection",
-                             round_num, neg_dir)
+                logger.info("  Round %d: negatives already on disk (%s), skipping collection", round_num, neg_dir)
                 result.n_negatives = len(all_negatives)
                 new_negatives = []  # no new ones — all pre-loaded
             else:
@@ -1530,13 +1648,17 @@ class SelfConsistentTrainer:
                 # Disable autograd multithreading before fork-based collection.
                 # After GPU retrain, autograd's internal thread pool corrupts
                 # fork — disabling it allows the fork to proceed safely.
-                _mt_was_enabled = torch.autograd.is_multithreading_enabled() if hasattr(torch.autograd, 'is_multithreading_enabled') else True
+                _mt_was_enabled = (
+                    torch.autograd.is_multithreading_enabled()
+                    if hasattr(torch.autograd, "is_multithreading_enabled")
+                    else True
+                )
                 try:
-                    if hasattr(torch.autograd, 'set_multithreading_enabled'):
+                    if hasattr(torch.autograd, "set_multithreading_enabled"):
                         torch.autograd.set_multithreading_enabled(False)
                     new_negatives, stats = self._collect_negatives(round_num)
                 finally:
-                    if hasattr(torch.autograd, 'set_multithreading_enabled'):
+                    if hasattr(torch.autograd, "set_multithreading_enabled"):
                         torch.autograd.set_multithreading_enabled(_mt_was_enabled)
                 result.n_negatives = stats.n_negatives
                 result.category_counts = dict(stats.category_counts)
@@ -1550,12 +1672,14 @@ class SelfConsistentTrainer:
                 if new_negatives:
                     self._save_negatives(new_negatives, round_num)
 
-                logger.info("  Round %d: %d new negatives, %d cumulative",
-                             round_num, len(new_negatives), len(all_negatives))
+                logger.info(
+                    "  Round %d: %d new negatives, %d cumulative", round_num, len(new_negatives), len(all_negatives)
+                )
 
                 if len(new_negatives) < min_negatives:
-                    logger.info("  Too few negatives (%d < %d) — model may be converged.",
-                                 len(new_negatives), min_negatives)
+                    logger.info(
+                        "  Too few negatives (%d < %d) — model may be converged.", len(new_negatives), min_negatives
+                    )
                     if round_num > 1:
                         logger.info("  Stopping early (convergence).")
                         results.append(result)
@@ -1585,20 +1709,29 @@ class SelfConsistentTrainer:
 
             logger.info("─" * 66)
             logger.info("  ROUND %d SUMMARY  (%.0f min total)", round_num, total_time / 60)
-            logger.info("    Negatives: %d new (%s)",
-                         len(new_negatives),
-                         ", ".join(f"{k}={v}" for k, v in sorted(result.category_counts.items())))
-            logger.info("    Basin eval: RMSD=%.2f  Q=%.3f  Rg%%=%.0f%%  ΔE=%.3f  k64dR=%.2f  CO=%.3f  Score=%.3f  %s",
-                         result.basin_rmsd, result.basin_q, result.basin_rg_pct,
-                         result.basin_e_delta, result.basin_k64drmsd, result.basin_contact_order,
-                         result.basin_composite,
-                         "✓ IMPROVED" if result.improved else "")
-            logger.info("    Time: collect=%.0fm  retrain=%.0fm  eval=%.0fm",
-                         result.collect_time_sec / 60,
-                         result.retrain_time_sec / 60,
-                         result.eval_time_sec / 60)
-            logger.info("    Best so far: Score=%.3f (round %d)",
-                         self.best_composite, self.best_round)
+            logger.info(
+                "    Negatives: %d new (%s)",
+                len(new_negatives),
+                ", ".join(f"{k}={v}" for k, v in sorted(result.category_counts.items())),
+            )
+            logger.info(
+                "    Basin eval: RMSD=%.2f  Q=%.3f  Rg%%=%.0f%%  ΔE=%.3f  k64dR=%.2f  CO=%.3f  Score=%.3f  %s",
+                result.basin_rmsd,
+                result.basin_q,
+                result.basin_rg_pct,
+                result.basin_e_delta,
+                result.basin_k64drmsd,
+                result.basin_contact_order,
+                result.basin_composite,
+                "✓ IMPROVED" if result.improved else "",
+            )
+            logger.info(
+                "    Time: collect=%.0fm  retrain=%.0fm  eval=%.0fm",
+                result.collect_time_sec / 60,
+                result.retrain_time_sec / 60,
+                result.eval_time_sec / 60,
+            )
+            logger.info("    Best so far: Score=%.3f (round %d)", self.best_composite, self.best_round)
             logger.info("─" * 66)
 
             results.append(result)
@@ -1614,35 +1747,47 @@ class SelfConsistentTrainer:
             _consec_file.write_text(f"{_consecutive_increases}\n")
             _prev_score_file.write_text(f"{composite}\n")
             if _consecutive_increases >= 3:
-                logger.info("  EARLY STOP: %d consecutive rounds with increasing composite (worsening)",
-                            _consecutive_increases)
+                logger.info(
+                    "  EARLY STOP: %d consecutive rounds with increasing composite (worsening)", _consecutive_increases
+                )
                 # Save best checkpoint as stage_best
                 best_ckpt = self.out_dir / f"round{self.best_round:03d}_best.pt"
                 stage_best = self.out_dir / "stage_best.pt"
                 if best_ckpt.exists():
                     import shutil
+
                     shutil.copy2(best_ckpt, stage_best)
-                    logger.info("  Saved stage_best.pt from round %d (Composite=%.3f)",
-                                self.best_round, self.best_composite)
+                    logger.info(
+                        "  Saved stage_best.pt from round %d (Composite=%.3f)", self.best_round, self.best_composite
+                    )
                 break
 
             # ── Convergence check — Q/RMSD/Rg% criteria ────────────────
             rg_in_band = self.converge_rg_lo <= result.basin_rg_pct <= self.converge_rg_hi
-            _converged_now = (result.basin_q >= self.converge_q and
-                    result.basin_rmsd <= self.converge_rmsd and
-                    result.basin_rmsd > 0 and
-                    rg_in_band and
-                    result.basin_q_af <= 2.0 and
-                    result.basin_rg_af <= 2.0)
+            _converged_now = (
+                result.basin_q >= self.converge_q
+                and result.basin_rmsd <= self.converge_rmsd
+                and result.basin_rmsd > 0
+                and rg_in_band
+                and result.basin_q_af <= 2.0
+                and result.basin_rg_af <= 2.0
+            )
             if _converged_now:
                 _consecutive_converged += 1
                 _conv_consec_file.write_text(f"{_consecutive_converged}\n")
-                logger.info("  CONVERGED (%d/2): Q=%.3f≥%.3f  RMSD=%.2f≤%.1f  Rg%%=%.0f%% in [%.0f,%.0f]  Q_af=%.1f%%≤2%%  Rg_af=%.1f%%≤2%%",
-                            _consecutive_converged,
-                            result.basin_q, self.converge_q,
-                            result.basin_rmsd, self.converge_rmsd,
-                            result.basin_rg_pct, self.converge_rg_lo, self.converge_rg_hi,
-                            result.basin_q_af, result.basin_rg_af)
+                logger.info(
+                    "  CONVERGED (%d/2): Q=%.3f≥%.3f  RMSD=%.2f≤%.1f  Rg%%=%.0f%% in [%.0f,%.0f]  Q_af=%.1f%%≤2%%  Rg_af=%.1f%%≤2%%",
+                    _consecutive_converged,
+                    result.basin_q,
+                    self.converge_q,
+                    result.basin_rmsd,
+                    self.converge_rmsd,
+                    result.basin_rg_pct,
+                    self.converge_rg_lo,
+                    self.converge_rg_hi,
+                    result.basin_q_af,
+                    result.basin_rg_af,
+                )
                 if _consecutive_converged >= 2:
                     _conv_path = self.out_dir / "converged.txt"
                     _conv_path.write_text(f"round {round_num}\n")
@@ -1654,6 +1799,7 @@ class SelfConsistentTrainer:
         # ── Save stage_best.pt from the round with lowest composite ──
         import glob as _glob
         import shutil as _shutil
+
         _best_comp = float("inf")
         _best_rnum = -1
         for _ef in sorted(_glob.glob(str(self.out_dir / "eval_round*.json"))):
@@ -1672,19 +1818,16 @@ class SelfConsistentTrainer:
             _dst = self.out_dir / "stage_best.pt"
             if _src.exists():
                 _shutil.copy2(str(_src), str(_dst))
-                logger.info("  Saved stage_best.pt from round %d (Composite=%.3f)",
-                            _best_rnum, _best_comp)
+                logger.info("  Saved stage_best.pt from round %d (Composite=%.3f)", _best_rnum, _best_comp)
             else:
                 logger.warning("  Best round %d checkpoint missing: %s", _best_rnum, _src)
 
         # ── Final summary ─────────────────────────────────────────────
         logger.info("=" * 66)
         logger.info("  SELF-CONSISTENT TRAINING COMPLETE")
-        logger.info("  Rounds: %d  |  Best Score: %.3f (round %d)",
-                     len(results), self.best_composite, self.best_round)
+        logger.info("  Rounds: %d  |  Best Score: %.3f (round %d)", len(results), self.best_composite, self.best_round)
         logger.info("  Total negatives collected: %d", len(all_negatives))
-        total_time = sum(r.collect_time_sec + r.retrain_time_sec + r.eval_time_sec
-                          for r in results)
+        total_time = sum(r.collect_time_sec + r.retrain_time_sec + r.eval_time_sec for r in results)
         logger.info("  Total wall time: %.1f hours", total_time / 3600)
         logger.info("=" * 66)
 

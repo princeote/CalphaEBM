@@ -13,10 +13,10 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 
-from calphaebm.geometry.internal import bond_lengths, bond_angles, torsions
+from calphaebm.geometry.internal import bond_angles, bond_lengths, torsions
 from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
-from calphaebm.utils.math import wrap_to_pi
 from calphaebm.utils.logging import get_logger
+from calphaebm.utils.math import wrap_to_pi
 
 logger = get_logger()
 
@@ -27,51 +27,48 @@ THETA_PHI_RATIO = 0.161
 @dataclass
 class LocalValidationMetrics:
     # Clean (baseline / sanity)
-    clean_bond_mean:      float
-    clean_bond_std:       float
-    clean_bond_rmsd:      float
+    clean_bond_mean: float
+    clean_bond_std: float
+    clean_bond_rmsd: float
     clean_theta_roughness: float
-    clean_dphi_roughness:  float
+    clean_dphi_roughness: float
 
     # Distorted (fair negative check)
-    dist_bond_mean:      float
-    dist_bond_std:       float
-    dist_bond_rmsd:      float
+    dist_bond_mean: float
+    dist_bond_std: float
+    dist_bond_rmsd: float
     dist_theta_roughness: float
-    dist_dphi_roughness:  float
+    dist_dphi_roughness: float
 
     # Gap (model test)
-    gap_mean:         float
+    gap_mean: float
     gap_success_rate: float
-    gap_p10:          float
-    gap_p90:          float
+    gap_p10: float
+    gap_p90: float
 
     # Meta
     n_batches: int
-    step:      int
+    step: int
 
 
 class LocalValidator:
     """Fast geometry-only validation for local phase."""
 
     def __init__(self, model, device: torch.device):
-        self.model  = model
+        self.model = model
         self.device = device
 
     # ----------------------------------------------------------------
     # Model API robustness
     # ----------------------------------------------------------------
 
-    def _local_energy(self, R: torch.Tensor, seq: torch.Tensor,
-                      lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def _local_energy(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         """Access the local energy term regardless of model wrapper depth."""
         if hasattr(self.model, "local"):
             return self.model.local(R, seq, lengths=lengths)
         if hasattr(self.model, "energy") and hasattr(self.model.energy, "local"):
             return self.model.energy.local(R, seq, lengths=lengths)
-        raise AttributeError(
-            "Model does not expose a local energy term (.local or .energy.local)."
-        )
+        raise AttributeError("Model does not expose a local energy term (.local or .energy.local).")
 
     # ----------------------------------------------------------------
     # Geometry helpers
@@ -84,7 +81,7 @@ class LocalValidator:
         Padding-aware: only computes over valid residues.
         """
         theta = bond_angles(R)  # (B, L-2)
-        phi = torsions(R)       # (B, L-3)
+        phi = torsions(R)  # (B, L-3)
 
         if lengths is not None:
             B = R.shape[0]
@@ -97,10 +94,16 @@ class LocalValidator:
             theta_diffs = (theta[:, 1:] - theta[:, :-1]) ** 2
             dphi_diffs = wrap_to_pi(phi[:, 1:] - phi[:, :-1]) ** 2
 
-            theta_rough = float((theta_diffs * valid_t.float()).sum() / valid_t.float().sum().clamp(min=1)) \
-                if valid_t.any() else float("nan")
-            dphi_rough = float((dphi_diffs * valid_p.float()).sum() / valid_p.float().sum().clamp(min=1)) \
-                if valid_p.any() else float("nan")
+            theta_rough = (
+                float((theta_diffs * valid_t.float()).sum() / valid_t.float().sum().clamp(min=1))
+                if valid_t.any()
+                else float("nan")
+            )
+            dphi_rough = (
+                float((dphi_diffs * valid_p.float()).sum() / valid_p.float().sum().clamp(min=1))
+                if valid_p.any()
+                else float("nan")
+            )
         else:
             if theta.shape[-1] >= 2:
                 theta_rough = float(((theta[:, 1:] - theta[:, :-1]) ** 2).mean().item())
@@ -108,7 +111,7 @@ class LocalValidator:
                 theta_rough = float("nan")
             if phi.shape[-1] >= 2:
                 dphi = wrap_to_pi(phi[:, 1:] - phi[:, :-1])
-                dphi_rough = float((dphi ** 2).mean().item())
+                dphi_rough = float((dphi**2).mean().item())
             else:
                 dphi_rough = float("nan")
 
@@ -134,7 +137,7 @@ class LocalValidator:
             return float("nan"), float("nan"), float("nan")
 
         mean = float(bl_valid.mean().item())
-        std  = float(bl_valid.std().item())
+        std = float(bl_valid.std().item())
         rmsd = float(torch.sqrt(((bl_valid - ideal) ** 2).mean()).item())
         return mean, std, rmsd
 
@@ -144,10 +147,10 @@ class LocalValidator:
 
     @staticmethod
     def _create_ic_negative(
-        R:           torch.Tensor,
+        R: torch.Tensor,
         noise_scale: float = 0.15,
-        lengths:     torch.Tensor | None = None,
-        bond:        float = IDEAL_BOND,
+        lengths: torch.Tensor | None = None,
+        bond: float = IDEAL_BOND,
     ) -> torch.Tensor:
         """Add Gaussian noise in (θ, φ) space and reconstruct via NeRF.
 
@@ -182,11 +185,11 @@ class LocalValidator:
     def validate(
         self,
         val_loader,
-        n_batches:               int   = 5,
-        step:                    Optional[int] = None,
-        noise_scale:             float = 0.15,
-        n_corruptions_per_batch: int   = 5,
-        warn_bond_rmsd_diff:     float = 0.005,
+        n_batches: int = 5,
+        step: Optional[int] = None,
+        noise_scale: float = 0.15,
+        n_corruptions_per_batch: int = 5,
+        warn_bond_rmsd_diff: float = 0.005,
     ) -> LocalValidationMetrics:
         """Run lightweight validation on a few batches using IC negatives.
 
@@ -195,12 +198,12 @@ class LocalValidator:
         self.model.eval()
 
         clean_bond_means, clean_bond_stds, clean_bond_rmsds = [], [], []
-        clean_theta_roughs, clean_dphi_roughs                = [], []
+        clean_theta_roughs, clean_dphi_roughs = [], []
 
         dist_bond_means, dist_bond_stds, dist_bond_rmsds = [], [], []
-        dist_theta_roughs, dist_dphi_roughs               = [], []
+        dist_theta_roughs, dist_dphi_roughs = [], []
 
-        gaps        = []
+        gaps = []
         batches_used = 0
 
         for i, batch in enumerate(val_loader):
@@ -213,7 +216,7 @@ class LocalValidator:
             # ---- clean stats (once per batch) ----
             with torch.no_grad():
                 bmean, bstd, brmsd = self._compute_bond_stats(R, lengths)
-                tr, dr             = self._compute_roughness(R, lengths)
+                tr, dr = self._compute_roughness(R, lengths)
 
             clean_bond_means.append(bmean)
             clean_bond_stds.append(bstd)
@@ -227,10 +230,10 @@ class LocalValidator:
 
                 with torch.no_grad():
                     bmean_d, bstd_d, brmsd_d = self._compute_bond_stats(R_dist, lengths)
-                    tr_d, dr_d               = self._compute_roughness(R_dist, lengths)
+                    tr_d, dr_d = self._compute_roughness(R_dist, lengths)
 
                     E_native = self._local_energy(R, seq, lengths=lengths).mean()
-                    E_dist   = self._local_energy(R_dist, seq, lengths=lengths).mean()
+                    E_dist = self._local_energy(R_dist, seq, lengths=lengths).mean()
 
                 dist_bond_means.append(bmean_d)
                 dist_bond_stds.append(bstd_d)
@@ -244,17 +247,25 @@ class LocalValidator:
         # ---- handle empty case ----
         if batches_used == 0 or not gaps:
             return LocalValidationMetrics(
-                clean_bond_mean=float("inf"), clean_bond_std=float("inf"),
-                clean_bond_rmsd=float("inf"), clean_theta_roughness=float("inf"),
-                clean_dphi_roughness=float("inf"), dist_bond_mean=float("inf"),
-                dist_bond_std=float("inf"), dist_bond_rmsd=float("inf"),
-                dist_theta_roughness=float("inf"), dist_dphi_roughness=float("inf"),
-                gap_mean=float("-inf"), gap_success_rate=0.0,
-                gap_p10=float("-inf"), gap_p90=float("-inf"),
-                n_batches=0, step=int(step) if step is not None else -1,
+                clean_bond_mean=float("inf"),
+                clean_bond_std=float("inf"),
+                clean_bond_rmsd=float("inf"),
+                clean_theta_roughness=float("inf"),
+                clean_dphi_roughness=float("inf"),
+                dist_bond_mean=float("inf"),
+                dist_bond_std=float("inf"),
+                dist_bond_rmsd=float("inf"),
+                dist_theta_roughness=float("inf"),
+                dist_dphi_roughness=float("inf"),
+                gap_mean=float("-inf"),
+                gap_success_rate=0.0,
+                gap_p10=float("-inf"),
+                gap_p90=float("-inf"),
+                n_batches=0,
+                step=int(step) if step is not None else -1,
             )
 
-        gaps_np      = np.asarray(gaps, dtype=np.float64)
+        gaps_np = np.asarray(gaps, dtype=np.float64)
         success_rate = float(np.mean(gaps_np > 0.0))
 
         m = LocalValidationMetrics(
@@ -281,7 +292,8 @@ class LocalValidator:
             logger.warning(
                 "IC bond check: distorted bond RMSD=%.4f Å exceeds %.4f Å threshold "
                 "— NeRF should guarantee exact 3.8Å bonds; check reconstruct pipeline.",
-                m.dist_bond_rmsd, warn_bond_rmsd_diff,
+                m.dist_bond_rmsd,
+                warn_bond_rmsd_diff,
             )
 
         return m
@@ -295,7 +307,9 @@ class LocalValidator:
         logger.info("CLEAN (baseline / sanity):")
         logger.info(
             "  Bonds: mean=%.3f Å  std=%.3f Å  rmsd=%.4f Å",
-            m.clean_bond_mean, m.clean_bond_std, m.clean_bond_rmsd,
+            m.clean_bond_mean,
+            m.clean_bond_std,
+            m.clean_bond_rmsd,
         )
         logger.info("  θ roughness:  %.6f", m.clean_theta_roughness)
         logger.info("  Δφ roughness: %.6f", m.clean_dphi_roughness)
@@ -303,13 +317,16 @@ class LocalValidator:
         logger.info("DISTORTED (IC-noise negative — bonds exact by NeRF):")
         logger.info(
             "  Bonds: mean=%.3f Å  std=%.3f Å  rmsd=%.4f Å",
-            m.dist_bond_mean, m.dist_bond_std, m.dist_bond_rmsd,
+            m.dist_bond_mean,
+            m.dist_bond_std,
+            m.dist_bond_rmsd,
         )
         logger.info("  θ roughness:  %.6f", m.dist_theta_roughness)
         logger.info("  Δφ roughness: %.6f", m.dist_dphi_roughness)
         logger.info(
             "  Bond RMSD to ideal: dist=%.4f Å  clean=%.4f Å  (IC negatives should be ~0)",
-            m.dist_bond_rmsd, m.clean_bond_rmsd,
+            m.dist_bond_rmsd,
+            m.clean_bond_rmsd,
         )
 
         logger.info("GAP (model test):")
@@ -346,26 +363,32 @@ class LocalValidator:
             verdict = "✓" if m.gap_mean > 0 else "✗"
             logger.info(
                 "  %-10.2f  %-8.1f  %-8.4f  %-8.4f  %-8.4f  %s",
-                sigma, deg, m.gap_mean, m.gap_p10, m.gap_p90, verdict,
+                sigma,
+                deg,
+                m.gap_mean,
+                m.gap_p10,
+                m.gap_p90,
+                verdict,
             )
             results[sigma] = m
 
         logger.info("  %s", "-" * 50)
 
         gaps = [results[s].gap_mean for s in noise_levels]
-        monotone = all(gaps[i] <= gaps[i+1] for i in range(len(gaps)-1))
+        monotone = all(gaps[i] <= gaps[i + 1] for i in range(len(gaps) - 1))
         if not monotone:
             logger.warning(
-                "Gap is NOT monotonically increasing with σ — "
-                "local term may have pathological sensitivity profile."
+                "Gap is NOT monotonically increasing with σ — " "local term may have pathological sensitivity profile."
             )
         else:
             ratio_gap = gaps[-1] / max(gaps[0], 1e-9)
-            ratio_sq  = (noise_levels[-1] / noise_levels[0]) ** 2
+            ratio_sq = (noise_levels[-1] / noise_levels[0]) ** 2
             logger.info(
-                "  Sensitivity ratio: gap(%.2f)/gap(%.2f) = %.1fx  "
-                "(quadratic expectation: %.1fx)",
-                noise_levels[-1], noise_levels[0], ratio_gap, ratio_sq,
+                "  Sensitivity ratio: gap(%.2f)/gap(%.2f) = %.1fx  " "(quadratic expectation: %.1fx)",
+                noise_levels[-1],
+                noise_levels[0],
+                ratio_gap,
+                ratio_sq,
             )
         logger.info("%s\n", "=" * 60)
         return results

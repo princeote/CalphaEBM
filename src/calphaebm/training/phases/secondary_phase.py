@@ -38,6 +38,7 @@ THETA_PHI_RATIO = 0.161
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _read_secondary_weights(sec) -> dict:
     """Read all lambda values from the secondary module."""
     w = {}
@@ -68,16 +69,14 @@ def _read_hbond_params(sec) -> dict:
     return p
 
 
-def _sample_sigmas(B: int, sigma_min: float, sigma_max: float,
-                   device: torch.device) -> torch.Tensor:
+def _sample_sigmas(B: int, sigma_min: float, sigma_max: float, device: torch.device) -> torch.Tensor:
     """Per-sample log-uniform σ: returns (B, 1) for broadcasting."""
     log_min = math.log(sigma_min)
     log_max = math.log(sigma_max)
     return torch.empty(B, 1, device=device).uniform_(log_min, log_max).exp()
 
 
-def _ic_perturb(R: torch.Tensor, sigma_min: float, sigma_max: float,
-                lengths: Optional[torch.Tensor] = None):
+def _ic_perturb(R: torch.Tensor, sigma_min: float, sigma_max: float, lengths: Optional[torch.Tensor] = None):
     """IC-perturb a batch: returns (R_neg, theta_neg, phi_neg).
 
     Each structure gets its own log-uniform σ so every batch covers the
@@ -116,8 +115,8 @@ def _ic_perturb(R: torch.Tensor, sigma_min: float, sigma_max: float,
 
 # ── Main phase runner ────────────────────────────────────────────────────────
 
-def run_secondary_phase(trainer, config, train_loader, val_loader=None,
-                        native_structures=None, resume=None):
+
+def run_secondary_phase(trainer, config, train_loader, val_loader=None, native_structures=None, resume=None):
     """Run secondary phase training with IC-perturbed contrastive loss."""
 
     # ── Verify ───────────────────────────────────────────────────
@@ -170,8 +169,9 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
     logger.info("Initial lambdas: %s", "  ".join(f"{k}={v:.4f}" for k, v in init_w.items()))
     if init_hb:
         logger.info("H-bond params: %s", "  ".join(f"{k}={v:.3f}" for k, v in init_hb.items()))
-    logger.info("IC perturbation: σ ∈ [%.3f, %.3f] rad (log-uniform), θ ratio=%.3f",
-                sigma_min, sigma_max, THETA_PHI_RATIO)
+    logger.info(
+        "IC perturbation: σ ∈ [%.3f, %.3f] rad (log-uniform), θ ratio=%.3f", sigma_min, sigma_max, THETA_PHI_RATIO
+    )
     logger.info("Negatives: IC-perturbed (θ+φ), R reconstructed for H-bonds")
 
     # ── Resume ───────────────────────────────────────────────────
@@ -214,8 +214,8 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
 
         try:
             # Native internal coordinates
-            theta = bond_angles(R)   # (B, L-2)
-            phi = torsions(R)        # (B, L-3)
+            theta = bond_angles(R)  # (B, L-2)
+            phi = torsions(R)  # (B, L-3)
 
             # IC-perturbed negative — per-sample σ, both θ and φ noised, R reconstructed
             R_neg, theta_neg, phi_neg = _ic_perturb(R, sigma_min, sigma_max, lengths)
@@ -225,7 +225,7 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
             E_neg = sec.energy_from_thetaphi(theta_neg, phi_neg, seq, R=R_neg, lengths=lengths)
 
             # Contrastive: softplus(E_pos - E_neg) + light regularization
-            reg = 1e-4 * (E_pos ** 2 + E_neg ** 2).mean()
+            reg = 1e-4 * (E_pos**2 + E_neg**2).mean()
             loss = F.softplus(E_pos - E_neg).mean() + reg
 
             if not torch.isfinite(loss):
@@ -261,6 +261,7 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
         except Exception as e:
             logger.error("Error at step %d: %s", phase_step, e)
             import traceback
+
             traceback.print_exc()
             continue
 
@@ -270,9 +271,16 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
             logger.info(
                 "[%s] step %6d/%d (global=%d) | loss=%.4f | lr=%.2e | "
                 "gap=%.4f (ema=%.4f) | correct=%.0f%% (ema=%.0f%%) | %s",
-                config.name, phase_step, config.n_steps, trainer.global_step,
-                trainer.current_loss, current_lr,
-                gap, ema_gap, correct * 100, ema_correct * 100,
+                config.name,
+                phase_step,
+                config.n_steps,
+                trainer.global_step,
+                trainer.current_loss,
+                current_lr,
+                gap,
+                ema_gap,
+                correct * 100,
+                ema_correct * 100,
                 "  ".join(f"{k}={v:.3f}" for k, v in weights.items()),
             )
 
@@ -287,8 +295,13 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
                 gap_val = E_neg_mean - E_pos_mean
 
             logger.info("══════════════════════════════════════════════════════════════════")
-            logger.info("           STEP %d/%d | loss=%.4f | lr=%.2e",
-                        phase_step, config.n_steps, trainer.current_loss, current_lr)
+            logger.info(
+                "           STEP %d/%d | loss=%.4f | lr=%.2e",
+                phase_step,
+                config.n_steps,
+                trainer.current_loss,
+                current_lr,
+            )
             logger.info("──────────────────────────────────────────────────────────────────")
             logger.info("  Lambdas:  %s", "  ".join(f"{k}={v:.4f}" for k, v in weights.items()))
             if hb_params:
@@ -297,16 +310,15 @@ def run_secondary_phase(trainer, config, train_loader, val_loader=None,
             logger.info("──────────────────────────────────────────────────────────────────")
             logger.info("  E_pos (native):       %+.6f", E_pos_mean)
             logger.info("  E_neg (IC-perturbed): %+.6f", E_neg_mean)
-            logger.info("  Gap (neg − pos):      %+.6f  (EMA: %+.6f)  %s",
-                        gap_val, ema_gap, "good" if gap_val > 0 else "BAD")
-            logger.info("  Correct (pos<neg):    %.1f%%  (EMA: %.1f%%)",
-                        correct * 100, ema_correct * 100)
+            logger.info(
+                "  Gap (neg − pos):      %+.6f  (EMA: %+.6f)  %s", gap_val, ema_gap, "good" if gap_val > 0 else "BAD"
+            )
+            logger.info("  Correct (pos<neg):    %.1f%%  (EMA: %.1f%%)", correct * 100, ema_correct * 100)
             logger.info("  Loss (softplus):      %.6f", trainer.current_loss)
 
             if hasattr(sec, "A"):
                 A = sec.A.detach()
-                logger.info("  Basin mixing A:       |max|=%.4f  std=%.4f",
-                            A.abs().max().item(), A.std().item())
+                logger.info("  Basin mixing A:       |max|=%.4f  std=%.4f", A.abs().max().item(), A.std().item())
 
             logger.info("══════════════════════════════════════════════════════════════════")
 

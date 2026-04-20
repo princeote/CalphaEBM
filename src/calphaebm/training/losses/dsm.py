@@ -93,17 +93,13 @@ import math
 
 import torch
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.utils.math import wrap_to_pi
-
 
 # ---------------------------------------------------------------------------
 # Cartesian DSM (kept for ablations and legacy comparison)
 # ---------------------------------------------------------------------------
+
 
 def dsm_cartesian_loss(
     energy_model: torch.nn.Module,
@@ -126,30 +122,31 @@ def dsm_cartesian_loss(
     Returns a scalar tensor. If unsafe, returns a detached zero (skip sentinel).
     """
     device = R.device
-    dtype  = R.dtype
-    B      = R.shape[0]
+    dtype = R.dtype
+    B = R.shape[0]
 
     multi_scale = (sigma_min is not None) and (sigma_max is not None) and (sigma_min < sigma_max)
     if multi_scale:
-        log_sigmas   = torch.empty(B, device=device, dtype=dtype).uniform_(
-                           math.log(float(sigma_min)), math.log(float(sigma_max)))
-        sigmas       = log_sigmas.exp()
-        sigma_bcast  = sigmas[:, None, None]
+        log_sigmas = torch.empty(B, device=device, dtype=dtype).uniform_(
+            math.log(float(sigma_min)), math.log(float(sigma_max))
+        )
+        sigmas = log_sigmas.exp()
+        sigma_bcast = sigmas[:, None, None]
     else:
-        sigmas      = torch.full((B,), float(sigma), device=device, dtype=dtype)
+        sigmas = torch.full((B,), float(sigma), device=device, dtype=dtype)
         sigma_bcast = sigmas[:, None, None]
 
     with torch.no_grad():
-        diff          = R[:, :, None, :] - R[:, None, :, :]
-        D             = torch.sqrt((diff * diff).sum(dim=-1) + eps)
-        L             = D.shape[1]
-        eye           = torch.eye(L, device=device, dtype=torch.bool).unsqueeze(0)
-        D_clean       = D.masked_fill(eye, float("inf"))
+        diff = R[:, :, None, :] - R[:, None, :, :]
+        D = torch.sqrt((diff * diff).sum(dim=-1) + eps)
+        L = D.shape[1]
+        eye = torch.eye(L, device=device, dtype=torch.bool).unsqueeze(0)
+        D_clean = D.masked_fill(eye, float("inf"))
         min_dist_clean = D_clean.amin(dim=(1, 2))
         if torch.any(min_dist_clean < float(min_dist_cutoff)):
             return torch.zeros((), device=device, dtype=dtype)
 
-    noise   = torch.randn_like(R)
+    noise = torch.randn_like(R)
     R_tilde = (R + sigma_bcast * noise).detach().requires_grad_(True)
 
     if hasattr(energy_model, "forward_dsm"):
@@ -162,15 +159,15 @@ def dsm_cartesian_loss(
     if (not torch.isfinite(grad).all()) or (grad.abs().max().detach() > float(score_abs_max)):
         return torch.zeros((), device=device, dtype=dtype)
 
-    inv_sigma2 = 1.0 / (sigmas ** 2 + eps)
-    target     = (R_tilde - R) * inv_sigma2[:, None, None]
+    inv_sigma2 = 1.0 / (sigmas**2 + eps)
+    target = (R_tilde - R) * inv_sigma2[:, None, None]
 
     if not torch.isfinite(target).all():
         return torch.zeros((), device=device, dtype=dtype)
 
     resid = torch.clamp(grad - target, min=-float(resid_abs_max), max=float(resid_abs_max))
-    sigma2 = sigmas ** 2
-    loss   = (sigma2[:, None, None] * resid * resid).mean(dim=(1, 2)).mean()
+    sigma2 = sigmas**2
+    loss = (sigma2[:, None, None] * resid * resid).mean(dim=(1, 2)).mean()
 
     return loss if torch.isfinite(loss) else torch.zeros((), device=device, dtype=dtype)
 
@@ -179,18 +176,19 @@ def dsm_cartesian_loss(
 # IC DSM core — computes DSM loss for one set of perturbed ICs
 # ---------------------------------------------------------------------------
 
+
 def _dsm_ic_core(
     energy_model: torch.nn.Module,
-    theta_tilde: torch.Tensor,       # (B, L-2) perturbed bond angles
-    phi_tilde: torch.Tensor,         # (B, L-3) perturbed dihedrals
-    theta_clean: torch.Tensor,       # (B, L-2) native bond angles
-    phi_clean: torch.Tensor,         # (B, L-3) native dihedrals
-    anchor: torch.Tensor,            # (B, 3, 3) first three atom positions
-    seq: torch.Tensor,               # (B, L) amino acid indices
-    sigmas_theta: torch.Tensor,      # (B,) effective sigma for θ
-    sigmas_phi: torch.Tensor,        # (B,) effective sigma for φ
+    theta_tilde: torch.Tensor,  # (B, L-2) perturbed bond angles
+    phi_tilde: torch.Tensor,  # (B, L-3) perturbed dihedrals
+    theta_clean: torch.Tensor,  # (B, L-2) native bond angles
+    phi_clean: torch.Tensor,  # (B, L-3) native dihedrals
+    anchor: torch.Tensor,  # (B, 3, 3) first three atom positions
+    seq: torch.Tensor,  # (B, L) amino acid indices
+    sigmas_theta: torch.Tensor,  # (B,) effective sigma for θ
+    sigmas_phi: torch.Tensor,  # (B,) effective sigma for φ
     valid_theta: torch.Tensor | None,  # (B, L-2) mask or None
-    valid_phi: torch.Tensor | None,    # (B, L-3) mask or None
+    valid_phi: torch.Tensor | None,  # (B, L-3) mask or None
     lengths: torch.Tensor | None,
     bond: float = 3.8,
     eps: float = 1e-12,
@@ -205,15 +203,15 @@ def _dsm_ic_core(
     from the perturbed configuration back toward native.
     """
     device = theta_tilde.device
-    dtype  = theta_tilde.dtype
+    dtype = theta_tilde.dtype
 
     # Clamp θ to (0, π), wrap φ to [-π, π]
     theta_tilde = theta_tilde.clamp(0.01, math.pi - 0.01)
-    phi_tilde   = wrap_to_pi(phi_tilde)
+    phi_tilde = wrap_to_pi(phi_tilde)
 
     # Detach and mark as leaf for autograd
     theta_tilde = theta_tilde.detach().requires_grad_(True)
-    phi_tilde   = phi_tilde.detach().requires_grad_(True)
+    phi_tilde = phi_tilde.detach().requires_grad_(True)
 
     # Reconstruct R with exact bonds
     R_tilde = nerf_reconstruct(theta_tilde, phi_tilde, anchor, bond=bond)
@@ -223,8 +221,10 @@ def _dsm_ic_core(
 
     # Score: dE/dθ̃ and dE/dφ̃
     grad_theta, grad_phi = torch.autograd.grad(
-        E, [theta_tilde, phi_tilde],
-        create_graph=True, retain_graph=True,
+        E,
+        [theta_tilde, phi_tilde],
+        create_graph=True,
+        retain_graph=True,
     )
 
     # Safety check
@@ -237,14 +237,14 @@ def _dsm_ic_core(
         return None
 
     # Score targets
-    inv_sigma2_theta = 1.0 / (sigmas_theta ** 2 + eps)  # (B,)
-    inv_sigma2_phi   = 1.0 / (sigmas_phi   ** 2 + eps)  # (B,)
+    inv_sigma2_theta = 1.0 / (sigmas_theta**2 + eps)  # (B,)
+    inv_sigma2_phi = 1.0 / (sigmas_phi**2 + eps)  # (B,)
 
     # θ: no periodicity
     target_theta = (theta_tilde - theta_clean) * inv_sigma2_theta[:, None]
     # φ: periodic — shortest-arc difference
-    delta_phi    = wrap_to_pi(phi_tilde - phi_clean)
-    target_phi   = delta_phi * inv_sigma2_phi[:, None]
+    delta_phi = wrap_to_pi(phi_tilde - phi_clean)
+    target_phi = delta_phi * inv_sigma2_phi[:, None]
 
     if not torch.isfinite(target_theta).all() or not torch.isfinite(target_phi).all():
         return None
@@ -252,30 +252,32 @@ def _dsm_ic_core(
     # DSM residual
     resid_theta = torch.clamp(
         grad_theta - target_theta,
-        min=-float(resid_abs_max), max=float(resid_abs_max),
+        min=-float(resid_abs_max),
+        max=float(resid_abs_max),
     )
     resid_phi = torch.clamp(
         grad_phi - target_phi,
-        min=-float(resid_abs_max), max=float(resid_abs_max),
+        min=-float(resid_abs_max),
+        max=float(resid_abs_max),
     )
 
     # Zero residuals at padding positions
     if valid_theta is not None:
         resid_theta = resid_theta * valid_theta.float()
-        resid_phi   = resid_phi   * valid_phi.float()
+        resid_phi = resid_phi * valid_phi.float()
 
     # Loss: σ² weighted per coordinate
-    sigma2_theta = sigmas_theta ** 2
-    sigma2_phi   = sigmas_phi   ** 2
+    sigma2_theta = sigmas_theta**2
+    sigma2_phi = sigmas_phi**2
 
     if lengths is not None:
         n_theta = (lengths - 2).clamp(min=1).float()
-        n_phi   = (lengths - 3).clamp(min=1).float()
+        n_phi = (lengths - 3).clamp(min=1).float()
         loss_theta = (sigma2_theta[:, None] * resid_theta * resid_theta).sum(dim=1) / n_theta
-        loss_phi   = (sigma2_phi[:, None]   * resid_phi   * resid_phi  ).sum(dim=1) / n_phi
+        loss_phi = (sigma2_phi[:, None] * resid_phi * resid_phi).sum(dim=1) / n_phi
     else:
         loss_theta = (sigma2_theta[:, None] * resid_theta * resid_theta).mean(dim=1)
-        loss_phi   = (sigma2_phi[:, None]   * resid_phi   * resid_phi  ).mean(dim=1)
+        loss_phi = (sigma2_phi[:, None] * resid_phi * resid_phi).mean(dim=1)
 
     loss = (loss_theta + loss_phi).mean()
     return loss if torch.isfinite(loss) else None
@@ -284,6 +286,7 @@ def _dsm_ic_core(
 # ---------------------------------------------------------------------------
 # IC DSM — the correct loss for run19+ training
 # ---------------------------------------------------------------------------
+
 
 def dsm_ic_loss(
     energy_model: torch.nn.Module,
@@ -363,24 +366,24 @@ def dsm_ic_loss(
         Scalar loss. Returns detached zero if unsafe (skip-step sentinel).
     """
     device = R.device
-    dtype  = R.dtype
-    B      = R.shape[0]
-    zero   = torch.zeros((), device=device, dtype=dtype)
+    dtype = R.dtype
+    B = R.shape[0]
+    zero = torch.zeros((), device=device, dtype=dtype)
 
     # ---- Extract internal coordinates from clean structure ----
     with torch.no_grad():
-        theta_clean, phi_clean = coords_to_internal(R)   # (B, L-2), (B, L-3)
-        anchor                 = extract_anchor(R)        # (B, 3, 3)
+        theta_clean, phi_clean = coords_to_internal(R)  # (B, L-2), (B, L-3)
+        anchor = extract_anchor(R)  # (B, 3, 3)
 
     # ---- Padding masks for IC positions ----
     if lengths is not None:
         idx_t = torch.arange(theta_clean.shape[1], device=device)
         idx_p = torch.arange(phi_clean.shape[1], device=device)
         valid_theta = idx_t.unsqueeze(0) < (lengths.unsqueeze(1) - 2)  # (B, L-2)
-        valid_phi   = idx_p.unsqueeze(0) < (lengths.unsqueeze(1) - 3)  # (B, L-3)
+        valid_phi = idx_p.unsqueeze(0) < (lengths.unsqueeze(1) - 3)  # (B, L-3)
     else:
         valid_theta = None
-        valid_phi   = None
+        valid_phi = None
 
     # ---- Sigma schedule ----
     diff_sigma = (
@@ -394,38 +397,49 @@ def dsm_ic_loss(
         t = torch.empty(B, device=device, dtype=dtype).uniform_(0.0, 1.0)
         log_smin_theta = math.log(float(sigma_min_theta))
         log_smax_theta = math.log(float(sigma_max_theta))
-        log_smin_phi   = math.log(float(sigma_min_phi))
-        log_smax_phi   = math.log(float(sigma_max_phi))
+        log_smin_phi = math.log(float(sigma_min_phi))
+        log_smax_phi = math.log(float(sigma_max_phi))
         sigmas_theta = (t * (log_smax_theta - log_smin_theta) + log_smin_theta).exp()
-        sigmas_phi   = (t * (log_smax_phi   - log_smin_phi)   + log_smin_phi).exp()
+        sigmas_phi = (t * (log_smax_phi - log_smin_phi) + log_smin_phi).exp()
     else:
         multi_scale = (sigma_min is not None) and (sigma_max is not None) and (sigma_min < sigma_max)
         if multi_scale:
             log_sigmas = torch.empty(B, device=device, dtype=dtype).uniform_(
-                             math.log(float(sigma_min)), math.log(float(sigma_max)))
+                math.log(float(sigma_min)), math.log(float(sigma_max))
+            )
             sigmas = log_sigmas.exp()
         else:
             sigmas = torch.full((B,), float(sigma), device=device, dtype=dtype)
         sigmas_theta = sigmas
-        sigmas_phi   = sigmas
+        sigmas_phi = sigmas
 
     # ---- Sample 1: Standard DSM — noise native ICs ----
     noise_theta = torch.randn_like(theta_clean)
-    noise_phi   = torch.randn_like(phi_clean)
+    noise_phi = torch.randn_like(phi_clean)
     if valid_theta is not None:
         noise_theta = noise_theta * valid_theta.float()
-        noise_phi   = noise_phi   * valid_phi.float()
+        noise_phi = noise_phi * valid_phi.float()
 
     theta_tilde_std = theta_clean + sigmas_theta[:, None] * noise_theta
-    phi_tilde_std   = phi_clean   + sigmas_phi[:, None]   * noise_phi
+    phi_tilde_std = phi_clean + sigmas_phi[:, None] * noise_phi
 
     loss_std = _dsm_ic_core(
-        energy_model, theta_tilde_std, phi_tilde_std,
-        theta_clean, phi_clean, anchor, seq,
-        sigmas_theta, sigmas_phi,
-        valid_theta, valid_phi, lengths,
-        bond=bond, eps=eps,
-        score_abs_max=score_abs_max, resid_abs_max=resid_abs_max,
+        energy_model,
+        theta_tilde_std,
+        phi_tilde_std,
+        theta_clean,
+        phi_clean,
+        anchor,
+        seq,
+        sigmas_theta,
+        sigmas_phi,
+        valid_theta,
+        valid_phi,
+        lengths,
+        bond=bond,
+        eps=eps,
+        score_abs_max=score_abs_max,
+        resid_abs_max=resid_abs_max,
     )
 
     if loss_std is None:
@@ -433,13 +447,16 @@ def dsm_ic_loss(
 
     # ---- Check for alpha augmentation ----
     # Disabled when α range is degenerate (min==max) or trivial ([1,1])
-    use_alpha = (alpha_min is not None and alpha_max is not None
-                 and alpha_min < alpha_max
-                 and not (alpha_min == 1.0 and alpha_max == 1.0))
+    use_alpha = (
+        alpha_min is not None
+        and alpha_max is not None
+        and alpha_min < alpha_max
+        and not (alpha_min == 1.0 and alpha_max == 1.0)
+    )
 
     if not use_alpha:
         if diag is not None:
-            diag["dsm_std"]   = float(loss_std.detach().item())
+            diag["dsm_std"] = float(loss_std.detach().item())
             diag["dsm_alpha"] = None
             diag["dsm_mixed"] = None
             diag["dsm_total"] = float(loss_std.detach().item())
@@ -451,8 +468,7 @@ def dsm_ic_loss(
     # ==================================================================
     with torch.no_grad():
         # Sample α ~ U(alpha_min, alpha_max) per batch element
-        alphas = torch.empty(B, device=device, dtype=dtype).uniform_(
-            float(alpha_min), float(alpha_max))  # (B,)
+        alphas = torch.empty(B, device=device, dtype=dtype).uniform_(float(alpha_min), float(alpha_max))  # (B,)
 
         # Non-uniform scaling: α_i = 1 + (α_global - 1) × (d_i / d_mean)
         #
@@ -507,13 +523,13 @@ def dsm_ic_loss(
         theta_alpha, phi_alpha = coords_to_internal(R_alpha)  # (B, L-2), (B, L-3)
 
         # Compute per-element IC displacement for σ_α
-        delta_theta_alpha = theta_alpha - theta_clean                  # (B, L-2)
-        delta_phi_alpha   = wrap_to_pi(phi_alpha - phi_clean)          # (B, L-3)
+        delta_theta_alpha = theta_alpha - theta_clean  # (B, L-2)
+        delta_phi_alpha = wrap_to_pi(phi_alpha - phi_clean)  # (B, L-3)
 
         # Zero padding positions
         if valid_theta is not None:
             delta_theta_alpha = delta_theta_alpha * valid_theta.float()
-            delta_phi_alpha   = delta_phi_alpha   * valid_phi.float()
+            delta_phi_alpha = delta_phi_alpha * valid_phi.float()
 
         # d = 2L - 5 per element (L-2 bond angles + L-3 dihedrals)
         if lengths is not None:
@@ -523,39 +539,59 @@ def dsm_ic_loss(
             d = torch.full((B,), float(2 * L - 5), device=device, dtype=dtype)
 
         # σ_α = ||x_α - x_native|| / √d  per batch element
-        disp_sq = (delta_theta_alpha ** 2).sum(dim=1) + (delta_phi_alpha ** 2).sum(dim=1)  # (B,)
+        disp_sq = (delta_theta_alpha**2).sum(dim=1) + (delta_phi_alpha**2).sum(dim=1)  # (B,)
         sigma_alpha = torch.sqrt(disp_sq / d + eps)  # (B,)
 
     # ---- Sample 2: x_α → x_native (scaled, no IC noise) ----
     loss_alpha = _dsm_ic_core(
-        energy_model, theta_alpha, phi_alpha,
-        theta_clean, phi_clean, anchor, seq,
-        sigma_alpha, sigma_alpha,  # shared σ_α for both coordinates
-        valid_theta, valid_phi, lengths,
-        bond=bond, eps=eps,
-        score_abs_max=score_abs_max, resid_abs_max=resid_abs_max,
+        energy_model,
+        theta_alpha,
+        phi_alpha,
+        theta_clean,
+        phi_clean,
+        anchor,
+        seq,
+        sigma_alpha,
+        sigma_alpha,  # shared σ_α for both coordinates
+        valid_theta,
+        valid_phi,
+        lengths,
+        bond=bond,
+        eps=eps,
+        score_abs_max=score_abs_max,
+        resid_abs_max=resid_abs_max,
     )
 
     # ---- Sample 3: x̃_α → x_native (scaled + IC noise) ----
-    sigma_eff_theta = torch.sqrt(sigma_alpha ** 2 + sigmas_theta ** 2)  # (B,)
-    sigma_eff_phi   = torch.sqrt(sigma_alpha ** 2 + sigmas_phi   ** 2)  # (B,)
+    sigma_eff_theta = torch.sqrt(sigma_alpha**2 + sigmas_theta**2)  # (B,)
+    sigma_eff_phi = torch.sqrt(sigma_alpha**2 + sigmas_phi**2)  # (B,)
 
     noise_theta2 = torch.randn_like(theta_clean)
-    noise_phi2   = torch.randn_like(phi_clean)
+    noise_phi2 = torch.randn_like(phi_clean)
     if valid_theta is not None:
         noise_theta2 = noise_theta2 * valid_theta.float()
-        noise_phi2   = noise_phi2   * valid_phi.float()
+        noise_phi2 = noise_phi2 * valid_phi.float()
 
     theta_tilde_mix = theta_alpha + sigmas_theta[:, None] * noise_theta2
-    phi_tilde_mix   = phi_alpha   + sigmas_phi[:, None]   * noise_phi2
+    phi_tilde_mix = phi_alpha + sigmas_phi[:, None] * noise_phi2
 
     loss_mixed = _dsm_ic_core(
-        energy_model, theta_tilde_mix, phi_tilde_mix,
-        theta_clean, phi_clean, anchor, seq,
-        sigma_eff_theta, sigma_eff_phi,
-        valid_theta, valid_phi, lengths,
-        bond=bond, eps=eps,
-        score_abs_max=score_abs_max, resid_abs_max=resid_abs_max,
+        energy_model,
+        theta_tilde_mix,
+        phi_tilde_mix,
+        theta_clean,
+        phi_clean,
+        anchor,
+        seq,
+        sigma_eff_theta,
+        sigma_eff_phi,
+        valid_theta,
+        valid_phi,
+        lengths,
+        bond=bond,
+        eps=eps,
+        score_abs_max=score_abs_max,
+        resid_abs_max=resid_abs_max,
     )
 
     # ---- Combine: average of available losses ----
@@ -569,7 +605,7 @@ def dsm_ic_loss(
 
     # Fill diagnostics dict if provided
     if diag is not None:
-        diag["dsm_std"]   = float(loss_std.detach().item())
+        diag["dsm_std"] = float(loss_std.detach().item())
         diag["dsm_alpha"] = float(loss_alpha.detach().item()) if loss_alpha is not None else None
         diag["dsm_mixed"] = float(loss_mixed.detach().item()) if loss_mixed is not None else None
         diag["dsm_total"] = float(total.detach().item()) if torch.isfinite(total) else None

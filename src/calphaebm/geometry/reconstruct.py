@@ -65,17 +65,17 @@ import torch.nn.functional as F
 
 from calphaebm.utils.math import safe_norm
 
-
 # ---------------------------------------------------------------------------
 # Core NeRF placement: place one atom given three anchors + angles
 # ---------------------------------------------------------------------------
 
+
 def _place_atom(
-    p1: torch.Tensor,   # (B, 3)
-    p2: torch.Tensor,   # (B, 3)
-    p3: torch.Tensor,   # (B, 3)
+    p1: torch.Tensor,  # (B, 3)
+    p2: torch.Tensor,  # (B, 3)
+    p3: torch.Tensor,  # (B, 3)
     theta: torch.Tensor,  # (B,) bond angle at p3 in radians
-    phi: torch.Tensor,    # (B,) torsion angle in radians
+    phi: torch.Tensor,  # (B,) torsion angle in radians
     bond: float = 3.8,
 ) -> torch.Tensor:
     """Place atom p4 given three reference atoms and two angles.
@@ -105,26 +105,26 @@ def _place_atom(
     #   d = bond * [-cos(θ),  sin(θ)*cos(φ),  sin(θ)*sin(φ)]
 
     bc = p3 - p2
-    bc = bc / (safe_norm(bc, dim=-1, keepdim=True))    # unit bond direction (B, 3)
+    bc = bc / (safe_norm(bc, dim=-1, keepdim=True))  # unit bond direction (B, 3)
 
     # Normal to p1-p2-p3 plane — matches u in dihedral()
     b0 = p2 - p1
     b1 = p3 - p2
-    n = torch.linalg.cross(b0, b1, dim=-1)             # (B, 3)
+    n = torch.linalg.cross(b0, b1, dim=-1)  # (B, 3)
     n = n / (safe_norm(n, dim=-1, keepdim=True))
 
     # In-plane vector perpendicular to bc
-    m = torch.linalg.cross(n, bc, dim=-1)              # (B, 3)
+    m = torch.linalg.cross(n, bc, dim=-1)  # (B, 3)
 
-    sin_t = torch.sin(theta)   # (B,)
-    cos_t = torch.cos(theta)   # (B,)
-    sin_p = torch.sin(phi)     # (B,)
-    cos_p = torch.cos(phi)     # (B,)
+    sin_t = torch.sin(theta)  # (B,)
+    cos_t = torch.cos(theta)  # (B,)
+    sin_p = torch.sin(phi)  # (B,)
+    cos_p = torch.cos(phi)  # (B,)
 
     # phi_dihedral = phi_nerf (no inversion needed with standard convention)
-    d_bc = (-cos_t).unsqueeze(-1)                      # (B, 1)
-    d_m  = ( sin_t * cos_p).unsqueeze(-1)              # (B, 1)
-    d_n  = ( sin_t * sin_p).unsqueeze(-1)              # (B, 1)  — no negation
+    d_bc = (-cos_t).unsqueeze(-1)  # (B, 1)
+    d_m = (sin_t * cos_p).unsqueeze(-1)  # (B, 1)
+    d_n = (sin_t * sin_p).unsqueeze(-1)  # (B, 1)  — no negation
 
     p4 = p3 + bond * (d_bc * bc + d_m * m + d_n * n)  # (B, 3)
     return p4
@@ -134,9 +134,10 @@ def _place_atom(
 # Full chain reconstruction
 # ---------------------------------------------------------------------------
 
+
 def nerf_reconstruct(
-    theta: torch.Tensor,   # (B, L-2) bond angles in radians
-    phi: torch.Tensor,     # (B, L-3) torsion angles in radians
+    theta: torch.Tensor,  # (B, L-2) bond angles in radians
+    phi: torch.Tensor,  # (B, L-3) torsion angles in radians
     anchor: torch.Tensor,  # (B, 3, 3) first three atom positions (fixed)
     bond: float = 3.8,
 ) -> torch.Tensor:
@@ -169,8 +170,8 @@ def nerf_reconstruct(
           flow back through the entire chain automatically.
     """
     B = theta.shape[0]
-    L_minus_2 = theta.shape[1]   # number of bond angles = L-2
-    L_minus_3 = phi.shape[1]     # number of torsions = L-3
+    L_minus_2 = theta.shape[1]  # number of bond angles = L-2
+    L_minus_3 = phi.shape[1]  # number of torsions = L-3
     L = L_minus_2 + 2
 
     if L_minus_3 != L_minus_2 - 1:
@@ -180,16 +181,14 @@ def nerf_reconstruct(
             f"Expected phi.shape[1] == theta.shape[1] - 1."
         )
     if anchor.shape != (B, 3, 3):
-        raise ValueError(
-            f"anchor must have shape (B, 3, 3), got {tuple(anchor.shape)}"
-        )
+        raise ValueError(f"anchor must have shape (B, 3, 3), got {tuple(anchor.shape)}")
 
     # Start with the three anchor atoms
     # We build coords as a list and stack at the end for efficiency
     coords = [
-        anchor[:, 0, :],   # (B, 3) — atom 0
-        anchor[:, 1, :],   # (B, 3) — atom 1
-        anchor[:, 2, :],   # (B, 3) — atom 2
+        anchor[:, 0, :],  # (B, 3) — atom 0
+        anchor[:, 1, :],  # (B, 3) — atom 1
+        anchor[:, 2, :],  # (B, 3) — atom 2
     ]
 
     # Place atoms 3, 4, ..., L-1 sequentially
@@ -203,8 +202,8 @@ def nerf_reconstruct(
         p1 = coords[i]
         p2 = coords[i + 1]
         p3 = coords[i + 2]
-        t  = theta[:, i + 1]  # angle at p3=r_{i+2}: bond_angles[k]=angle(r_k,r_{k+1},r_{k+2}), so k=i+1
-        p  = phi[:, i]        # torsion of (r_i, r_{i+1}, r_{i+2}, r_{i+3})
+        t = theta[:, i + 1]  # angle at p3=r_{i+2}: bond_angles[k]=angle(r_k,r_{k+1},r_{k+2}), so k=i+1
+        p = phi[:, i]  # torsion of (r_i, r_{i+1}, r_{i+2}, r_{i+3})
         p4 = _place_atom(p1, p2, p3, t, p, bond=bond)
         coords.append(p4)
 
@@ -217,8 +216,9 @@ def nerf_reconstruct(
 # (used to warm-start from native structure)
 # ---------------------------------------------------------------------------
 
+
 def coords_to_internal(
-    R: torch.Tensor,   # (B, L, 3) or (L, 3)
+    R: torch.Tensor,  # (B, L, 3) or (L, 3)
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Extract (theta, phi) from Cartesian coordinates.
 
@@ -259,9 +259,10 @@ def extract_anchor(R: torch.Tensor) -> torch.Tensor:
 # Numerical verification utility (not used in production)
 # ---------------------------------------------------------------------------
 
+
 @torch.no_grad()
 def verify_reconstruction(
-    R_original: torch.Tensor,   # (B, L, 3) or (L, 3)
+    R_original: torch.Tensor,  # (B, L, 3) or (L, 3)
     bond: float = 3.8,
     atol: float = 1e-4,
 ) -> dict:
@@ -290,21 +291,21 @@ def verify_reconstruction(
     R_reconstructed = nerf_reconstruct(theta, phi, anchor, bond=bond)
 
     # All bond lengths (B, L-1)
-    all_diffs   = R_reconstructed[:, 1:, :] - R_reconstructed[:, :-1, :]
-    all_bl      = torch.sqrt((all_diffs * all_diffs).sum(dim=-1))
+    all_diffs = R_reconstructed[:, 1:, :] - R_reconstructed[:, :-1, :]
+    all_bl = torch.sqrt((all_diffs * all_diffs).sum(dim=-1))
 
     # Anchor bonds: first 2 bonds (atoms 0-1, 1-2) — copied from native, NOT 3.8 Å exactly
-    anchor_bl   = all_bl[:, :2]
+    anchor_bl = all_bl[:, :2]
 
     # NeRF-placed bonds: atom 3 onwards — these MUST be exactly `bond` Å
-    nerf_diffs  = R_reconstructed[:, 3:, :] - R_reconstructed[:, 2:-1, :]
-    nerf_bl     = torch.sqrt((nerf_diffs * nerf_diffs).sum(dim=-1))  # (B, L-3)
-    max_bond_error  = (nerf_bl - bond).abs().max().item()
+    nerf_diffs = R_reconstructed[:, 3:, :] - R_reconstructed[:, 2:-1, :]
+    nerf_bl = torch.sqrt((nerf_diffs * nerf_diffs).sum(dim=-1))  # (B, L-3)
+    max_bond_error = (nerf_bl - bond).abs().max().item()
     mean_bond_error = (nerf_bl - bond).abs().mean().item()
 
     # Coordinate reconstruction error (residues 3+ only; anchor is copied exactly)
-    coord_error      = (R_reconstructed[:, 3:, :] - R_original[:, 3:, :]).abs()
-    max_coord_error  = coord_error.max().item()
+    coord_error = (R_reconstructed[:, 3:, :] - R_original[:, 3:, :]).abs()
+    max_coord_error = coord_error.max().item()
     mean_coord_error = coord_error.mean().item()
 
     passed = max_bond_error < atol
@@ -313,17 +314,17 @@ def verify_reconstruction(
         "passed": passed,
         # All bonds (including anchor — for display only)
         "bond_lengths_mean": all_bl.mean().item(),
-        "bond_lengths_std":  all_bl.std().item(),
+        "bond_lengths_std": all_bl.std().item(),
         # NeRF-placed bonds only (the meaningful check)
         "nerf_bond_lengths_mean": nerf_bl.mean().item(),
-        "nerf_bond_lengths_std":  nerf_bl.std().item(),
-        "max_bond_error_from_ideal":  max_bond_error,
+        "nerf_bond_lengths_std": nerf_bl.std().item(),
+        "max_bond_error_from_ideal": max_bond_error,
         "mean_bond_error_from_ideal": mean_bond_error,
         # Anchor bonds (native PDB, not 3.8 Å — informational only)
         "anchor_bond_lengths_mean": anchor_bl.mean().item(),
-        "anchor_bond_lengths_std":  anchor_bl.std().item(),
+        "anchor_bond_lengths_std": anchor_bl.std().item(),
         # Coordinate error
-        "max_coord_error":  max_coord_error,
+        "max_coord_error": max_coord_error,
         "mean_coord_error": mean_coord_error,
         "L": L,
         "B": B,

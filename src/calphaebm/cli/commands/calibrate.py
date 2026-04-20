@@ -88,69 +88,95 @@ def add_parser(subparsers) -> argparse.ArgumentParser:
     )
 
     # Data
-    parser.add_argument("--pdb",                required=True, nargs="+",
-                        help="PDB ID list file (or list of IDs)")
-    parser.add_argument("--backbone-data-dir",  default="analysis/backbone_geometry/data",
-                        help="Path to backbone geometry data (default: analysis/backbone_geometry/data)")
-    parser.add_argument("--secondary-data-dir", default="analysis/secondary_analysis/data",
-                        help="Path to secondary structure basin surfaces (default: analysis/secondary_analysis/data)")
-    parser.add_argument("--repulsion-data-dir", default="analysis/repulsion_analysis/data",
-                        help="Path to repulsion analysis data (default: analysis/repulsion_analysis/data)")
-    parser.add_argument("--cache-dir",          default="./pdb_cache",
-                        help="PDB cache directory (default: ./pdb_cache)")
-    parser.add_argument("--limit",              type=int, default=1000,
-                        help="Max PDB IDs to load (default: 1000)")
+    parser.add_argument("--pdb", required=True, nargs="+", help="PDB ID list file (or list of IDs)")
+    parser.add_argument(
+        "--backbone-data-dir",
+        default="analysis/backbone_geometry/data",
+        help="Path to backbone geometry data (default: analysis/backbone_geometry/data)",
+    )
+    parser.add_argument(
+        "--secondary-data-dir",
+        default="analysis/secondary_analysis/data",
+        help="Path to secondary structure basin surfaces (default: analysis/secondary_analysis/data)",
+    )
+    parser.add_argument(
+        "--repulsion-data-dir",
+        default="analysis/repulsion_analysis/data",
+        help="Path to repulsion analysis data (default: analysis/repulsion_analysis/data)",
+    )
+    parser.add_argument("--cache-dir", default="./pdb_cache", help="PDB cache directory (default: ./pdb_cache)")
+    parser.add_argument("--limit", type=int, default=1000, help="Max PDB IDs to load (default: 1000)")
 
     # Calibration
-    parser.add_argument("--n-samples",  type=int,   default=512,
-                        help="Number of segments to use (default: 512)")
-    parser.add_argument("--batch-size", type=int,   default=16,
-                        help="Batch size (default: 16)")
-    parser.add_argument("--sigma-min",  type=float, default=0.05,
-                        help="Lower sigma bound in radians (default: 0.05 rad ≈ 3°)")
-    parser.add_argument("--sigma-max",  type=float, default=2.0,
-                        help="Upper sigma bound in radians (default: 2.0 rad ≈ 115°)")
-    parser.add_argument("--target",     type=float, default=1.0/7.0,
-                        help="Target mean energy per residue per sub-term (default: 1/7 ≈ 0.143 "
-                             "for 7 subterms with 4-mer architecture; use 1/9 for old 9-subterm)")
-    parser.add_argument("--calibrate-mlp-terms", action="store_true", default=False,
-                        help="Also calibrate theta_theta and phi_phi MLP sub-terms in local. "
-                             "Only meaningful after training — at init these terms produce "
-                             "near-zero output and cannot be meaningfully calibrated.")
+    parser.add_argument("--n-samples", type=int, default=512, help="Number of segments to use (default: 512)")
+    parser.add_argument("--batch-size", type=int, default=16, help="Batch size (default: 16)")
+    parser.add_argument(
+        "--sigma-min", type=float, default=0.05, help="Lower sigma bound in radians (default: 0.05 rad ≈ 3°)"
+    )
+    parser.add_argument(
+        "--sigma-max", type=float, default=2.0, help="Upper sigma bound in radians (default: 2.0 rad ≈ 115°)"
+    )
+    parser.add_argument(
+        "--target",
+        type=float,
+        default=1.0 / 7.0,
+        help="Target mean energy per residue per sub-term (default: 1/7 ≈ 0.143 "
+        "for 7 subterms with 4-mer architecture; use 1/9 for old 9-subterm)",
+    )
+    parser.add_argument(
+        "--calibrate-mlp-terms",
+        action="store_true",
+        default=False,
+        help="Also calibrate theta_theta and phi_phi MLP sub-terms in local. "
+        "Only meaningful after training — at init these terms produce "
+        "near-zero output and cannot be meaningfully calibrated.",
+    )
 
     # Output
-    parser.add_argument("--out", default="calibration.json",
-                        help="Output JSON path (default: calibration.json)")
+    parser.add_argument("--out", default="calibration.json", help="Output JSON path (default: calibration.json)")
 
     # Optional checkpoint patching
-    parser.add_argument("--apply-to-ckpt", default=None,
-                        help="Apply calibrated weights to this checkpoint")
-    parser.add_argument("--out-ckpt",      default=None,
-                        help="Output checkpoint path (required with --apply-to-ckpt)")
-    parser.add_argument("--packing-geom-calibration",
-                        default="analysis/packing_analysis/data/geometry_feature_calibration.json",
-                        help="Path to geometry_feature_calibration.json for packing MLP "
-                             "(default: analysis/packing_analysis/data/geometry_feature_calibration.json)")
+    parser.add_argument("--apply-to-ckpt", default=None, help="Apply calibrated weights to this checkpoint")
+    parser.add_argument("--out-ckpt", default=None, help="Output checkpoint path (required with --apply-to-ckpt)")
+    parser.add_argument(
+        "--packing-geom-calibration",
+        default="analysis/packing_analysis/data/geometry_feature_calibration.json",
+        help="Path to geometry_feature_calibration.json for packing MLP "
+        "(default: analysis/packing_analysis/data/geometry_feature_calibration.json)",
+    )
 
     # Rg gate calibration mode
-    parser.add_argument("--rg-gate", action="store_true", default=False,
-                        help="Calibrate Rg Gaussian gate σ for packing terms. "
-                             "Measures Rg variation at each noise level. "
-                             "Uses --pdb, --n-samples, --sigma-min, --sigma-max.")
-    parser.add_argument("--rg-gate-n-repeats", type=int, default=10,
-                        help="Perturbation repeats per structure per σ for Rg gate calibration (default: 10)")
+    parser.add_argument(
+        "--rg-gate",
+        action="store_true",
+        default=False,
+        help="Calibrate Rg Gaussian gate σ for packing terms. "
+        "Measures Rg variation at each noise level. "
+        "Uses --pdb, --n-samples, --sigma-min, --sigma-max.",
+    )
+    parser.add_argument(
+        "--rg-gate-n-repeats",
+        type=int,
+        default=10,
+        help="Perturbation repeats per structure per σ for Rg gate calibration (default: 10)",
+    )
 
     # Coordination n* calibration mode
-    parser.add_argument("--coord-n-star", action="store_true", default=False,
-                        help="Calibrate per-AA optimal coordination counts (n*) for E_coord. "
-                             "Uses fixed sigmoid g(r)=σ((7.0-r)/1.0) — no checkpoint needed. "
-                             "Uses --pdb, --n-samples, --min-len, --max-len, --seed, --out.")
-    parser.add_argument("--min-len", type=int, default=40,
-                        help="Min chain length for Rg gate calibration (default: 40)")
-    parser.add_argument("--max-len", type=int, default=512,
-                        help="Max chain length for Rg gate calibration (default: 512)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed (default: 42)")
+    parser.add_argument(
+        "--coord-n-star",
+        action="store_true",
+        default=False,
+        help="Calibrate per-AA optimal coordination counts (n*) for E_coord. "
+        "Uses fixed sigmoid g(r)=σ((7.0-r)/1.0) — no checkpoint needed. "
+        "Uses --pdb, --n-samples, --min-len, --max-len, --seed, --out.",
+    )
+    parser.add_argument(
+        "--min-len", type=int, default=40, help="Min chain length for Rg gate calibration (default: 40)"
+    )
+    parser.add_argument(
+        "--max-len", type=int, default=512, help="Max chain length for Rg gate calibration (default: 512)"
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
 
     parser.set_defaults(func=run)
     return parser
@@ -167,8 +193,9 @@ def run(args) -> int:
         return _run_coord_n_star_calibration(args)
 
     import torch
-    from calphaebm.data.pdb_dataset import PDBSegmentDataset
+
     from calphaebm.cli.commands.train.data_utils import parse_pdb_arg
+    from calphaebm.data.pdb_dataset import PDBSegmentDataset
     from calphaebm.training.calibrators.subterm_calibrators import SubtermScaleCalibrator
 
     # ── validate ──────────────────────────────────────────────────────────────
@@ -200,7 +227,7 @@ def run(args) -> int:
         backbone_data_dir=args.backbone_data_dir,
         secondary_data_dir=args.secondary_data_dir,
         repulsion_data_dir=args.repulsion_data_dir,
-        packing_data_dir=args.repulsion_data_dir,   # same dir, matches train default
+        packing_data_dir=args.repulsion_data_dir,  # same dir, matches train default
         # Nonbonded
         repulsion_K=64,
         repulsion_exclude=3,
@@ -248,8 +275,12 @@ def run(args) -> int:
         ckpt_for_measure = torch.load(args.apply_to_ckpt, map_location="cpu", weights_only=False)
         state_for_measure = ckpt_for_measure.get("model_state", ckpt_for_measure)
         missing, unexpected = model.load_state_dict(state_for_measure, strict=False)
-        logger.info("  Loaded: %d keys, missing: %d (new params), unexpected: %d",
-                    len(state_for_measure) - len(missing), len(missing), len(unexpected))
+        logger.info(
+            "  Loaded: %d keys, missing: %d (new params), unexpected: %d",
+            len(state_for_measure) - len(missing),
+            len(missing),
+            len(unexpected),
+        )
 
     calibrator = SubtermScaleCalibrator(
         sigma_min=args.sigma_min,
@@ -292,25 +323,29 @@ def run(args) -> int:
         ]
 
         # MLP sub-terms (only when --calibrate-mlp-terms was used)
-        mlp_keys = [
-            "local._phi_phi_mlp_w",
-            "local._phi_phi_weight_raw",
-        ] if args.calibrate_mlp_terms else []
+        mlp_keys = (
+            [
+                "local._phi_phi_mlp_w",
+                "local._phi_phi_weight_raw",
+            ]
+            if args.calibrate_mlp_terms
+            else []
+        )
 
         # Secondary: ram weight + H-bond lambdas
         secondary_keys = [
             "secondary._lambda_ram_raw",
             "secondary._ram_weight_raw",
             "secondary.lambda_ram",
-            "secondary.hb_helix._lambda_raw",   # H-bond alpha lambda
-            "secondary.hb_sheet._lambda_raw",   # H-bond beta lambda
+            "secondary.hb_helix._lambda_raw",  # H-bond alpha lambda
+            "secondary.hb_sheet._lambda_raw",  # H-bond beta lambda
         ]
 
         # Repulsion and packing — always calibrated
         # Packing lambda — repulsion is NOT patched (safety constraint, preserved)
         rep_pack_keys = [
             "packing._lambda_pack_raw",
-            "packing.burial._lambda_hp_raw",    # contact HP lambda
+            "packing.burial._lambda_hp_raw",  # contact HP lambda
         ]
 
         for key in deterministic_keys + mlp_keys + secondary_keys + rep_pack_keys:
@@ -343,6 +378,7 @@ def run(args) -> int:
 # calphaebm calibrate-geometry  (delegates to analysis/packing module)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def add_geometry_parser(subparsers) -> argparse.ArgumentParser:
     """Add calibrate-geometry subcommand.
 
@@ -369,33 +405,42 @@ def add_geometry_parser(subparsers) -> argparse.ArgumentParser:
 
     # Re-use the same args as the packing CLI
     from calphaebm.analysis.packing.packing_config import (
-        DEFAULT_SEGMENTS_PT, DEFAULT_OUTPUT_DIR,
-        DEFAULT_N_STRUCTURES, DEFAULT_SIGMA_MIN, DEFAULT_SIGMA_MAX,
+        DEFAULT_N_STRUCTURES,
+        DEFAULT_OUTPUT_DIR,
+        DEFAULT_SEGMENTS_PT,
+        DEFAULT_SIGMA_MAX,
+        DEFAULT_SIGMA_MIN,
     )
-    parser.add_argument("--segments",     type=str,   default=str(DEFAULT_SEGMENTS_PT))
-    parser.add_argument("--output-dir",   type=str,   default=str(DEFAULT_OUTPUT_DIR))
-    parser.add_argument("--n-structures", type=int,   default=DEFAULT_N_STRUCTURES)
-    parser.add_argument("--sigma-min",    type=float, default=DEFAULT_SIGMA_MIN)
-    parser.add_argument("--sigma-max",    type=float, default=DEFAULT_SIGMA_MAX)
-    parser.add_argument("--quiet",        action="store_true")
+
+    parser.add_argument("--segments", type=str, default=str(DEFAULT_SEGMENTS_PT))
+    parser.add_argument("--output-dir", type=str, default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--n-structures", type=int, default=DEFAULT_N_STRUCTURES)
+    parser.add_argument("--sigma-min", type=float, default=DEFAULT_SIGMA_MIN)
+    parser.add_argument("--sigma-max", type=float, default=DEFAULT_SIGMA_MAX)
+    parser.add_argument("--quiet", action="store_true")
     # Legacy --limit alias
-    parser.add_argument("--limit",        type=int,   default=None,
-                        dest="n_structures",
-                        help="Alias for --n-structures (deprecated)")
+    parser.add_argument(
+        "--limit", type=int, default=None, dest="n_structures", help="Alias for --n-structures (deprecated)"
+    )
     # Legacy --out alias
-    parser.add_argument("--out",          type=str,   default=None,
-                        help="[ignored] Output JSON path now fixed to "
-                             "analysis/packing_analysis/data/geometry_feature_calibration.json")
+    parser.add_argument(
+        "--out",
+        type=str,
+        default=None,
+        help="[ignored] Output JSON path now fixed to "
+        "analysis/packing_analysis/data/geometry_feature_calibration.json",
+    )
 
     from calphaebm.analysis.packing.packing_core import run_packing_analysis
+
     parser.set_defaults(func=run_packing_analysis)
     return parser
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # calphaebm calibrate --rg-gate
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _run_coord_n_star_calibration(args) -> int:
     """Calibrate per-AA optimal soft neighbor counts (n*) for E_coord.
@@ -406,11 +451,13 @@ def _run_coord_n_star_calibration(args) -> int:
     Uses FIXED sigmoid g(r) = σ((7.0 - r) / 1.0) — independent of any
     checkpoint. Run once on training data; output is valid forever.
     """
+    from collections import defaultdict
+
     import numpy as np
     import torch
-    from collections import defaultdict
-    from calphaebm.data.pdb_chain_dataset import PDBChainDataset
+
     from calphaebm.cli.commands.train.data_utils import parse_pdb_arg
+    from calphaebm.data.pdb_chain_dataset import PDBChainDataset
     from calphaebm.geometry.pairs import topk_nonbonded_pairs
 
     # Fixed sigmoid constants — must match PackingEnergy.COORD_R_HALF / COORD_TAU
@@ -419,9 +466,26 @@ def _run_coord_n_star_calibration(args) -> int:
 
     # 1-letter alphabetical — matches the seq encoding in PDBChainDataset
     AA_NAMES = [
-        "ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE",
-        "LYS", "LEU", "MET", "ASN", "PRO", "GLN", "ARG", "SER",
-        "THR", "VAL", "TRP", "TYR",
+        "ALA",
+        "CYS",
+        "ASP",
+        "GLU",
+        "PHE",
+        "GLY",
+        "HIS",
+        "ILE",
+        "LYS",
+        "LEU",
+        "MET",
+        "ASN",
+        "PRO",
+        "GLN",
+        "ARG",
+        "SER",
+        "THR",
+        "VAL",
+        "TRP",
+        "TYR",
     ]
 
     seed = getattr(args, "seed", 42)
@@ -461,8 +525,8 @@ def _run_coord_n_star_calibration(args) -> int:
             L = R_chain.shape[0]
 
             # Add batch dim
-            R = R_chain.unsqueeze(0)       # (1, L, 3)
-            seq = seq_chain.unsqueeze(0)   # (1, L)
+            R = R_chain.unsqueeze(0)  # (1, L, 3)
+            seq = seq_chain.unsqueeze(0)  # (1, L)
 
             # Compute neighbor distances
             r, j_idx = topk_nonbonded_pairs(R, k=64, exclude=3, cutoff=max_dist)
@@ -544,12 +608,11 @@ def _run_rg_gate_calibration(args) -> int:
     """
     import numpy as np
     import torch
-    from calphaebm.data.pdb_chain_dataset import PDBChainDataset
+
     from calphaebm.cli.commands.train.data_utils import parse_pdb_arg
-    from calphaebm.geometry.reconstruct import (
-        nerf_reconstruct, coords_to_internal, extract_anchor,
-    )
+    from calphaebm.data.pdb_chain_dataset import PDBChainDataset
     from calphaebm.evaluation.metrics.rg import radius_of_gyration
+    from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
     seed = getattr(args, "seed", 42)
     torch.manual_seed(seed)
@@ -558,7 +621,7 @@ def _run_rg_gate_calibration(args) -> int:
     # Load PDB IDs
     pdb_ids = parse_pdb_arg(args.pdb)
     if args.limit:
-        pdb_ids = pdb_ids[:args.limit]
+        pdb_ids = pdb_ids[: args.limit]
     logger.info("Parsed %d PDB IDs", len(pdb_ids))
 
     min_len = getattr(args, "min_len", 40)
@@ -580,10 +643,9 @@ def _run_rg_gate_calibration(args) -> int:
     # Noise levels: log-uniform grid spanning DSM training range
     sigma_min = getattr(args, "sigma_min", 0.05)
     sigma_max = getattr(args, "sigma_max", 2.0)
-    sigma_levels = sorted(set([
-        round(x, 3) for x in
-        np.exp(np.linspace(math.log(sigma_min), math.log(sigma_max), 10)).tolist()
-    ]))
+    sigma_levels = sorted(
+        set([round(x, 3) for x in np.exp(np.linspace(math.log(sigma_min), math.log(sigma_max), 10)).tolist()])
+    )
 
     results = {}
 
@@ -629,26 +691,37 @@ def _run_rg_gate_calibration(args) -> int:
         }
         results[str(sigma)] = r
 
-        logger.info("σ_noise=%.3f  Rg_ratio: mean=%.4f ± %.4f  "
-                     "median=%.4f  [p05=%.3f, p95=%.3f]  (n=%d)",
-                     sigma, r["mean_ratio"], r["std_ratio"],
-                     r["median_ratio"], r["p05"], r["p95"], r["n_samples"])
+        logger.info(
+            "σ_noise=%.3f  Rg_ratio: mean=%.4f ± %.4f  " "median=%.4f  [p05=%.3f, p95=%.3f]  (n=%d)",
+            sigma,
+            r["mean_ratio"],
+            r["std_ratio"],
+            r["median_ratio"],
+            r["p05"],
+            r["p95"],
+            r["n_samples"],
+        )
 
     # Summary
     logger.info("\n" + "=" * 70)
     logger.info("  Rg GATE CALIBRATION RESULTS")
     logger.info("=" * 70)
-    logger.info("  %-10s  %-12s  %-12s  %-10s  %-14s",
-                "σ_noise", "mean_ratio", "σ_Rg_ratio", "median", "p05-p95")
+    logger.info("  %-10s  %-12s  %-12s  %-10s  %-14s", "σ_noise", "mean_ratio", "σ_Rg_ratio", "median", "p05-p95")
     logger.info("  " + "-" * 62)
 
     sigma_rg_table = {}
     for sigma in sigma_levels:
         r = results[str(sigma)]
         sigma_rg_table[sigma] = r["std_ratio"]
-        logger.info("  %-10.3f  %-12.4f  %-12.4f  %-10.4f  [%.3f, %.3f]",
-                     sigma, r["mean_ratio"], r["std_ratio"],
-                     r["median_ratio"], r["p05"], r["p95"])
+        logger.info(
+            "  %-10.3f  %-12.4f  %-12.4f  %-10.4f  [%.3f, %.3f]",
+            sigma,
+            r["mean_ratio"],
+            r["std_ratio"],
+            r["median_ratio"],
+            r["p05"],
+            r["p95"],
+        )
 
     logger.info("=" * 70)
 
@@ -660,7 +733,7 @@ def _run_rg_gate_calibration(args) -> int:
     logger.info("  (Based on σ_Rg at σ_noise=%.3f rad = near-native fluctuations)", sigma_levels[0])
     logger.info("  Gate effect at this σ:")
     for dev in [0.03, 0.05, 0.10, 0.20, 0.30]:
-        gate_val = math.exp(-(dev ** 2) / (2 * recommended ** 2))
+        gate_val = math.exp(-(dev**2) / (2 * recommended**2))
         logger.info("    Rg deviation ±%.0f%%: gate = %.3f", 100 * dev, gate_val)
 
     # Save
@@ -675,7 +748,7 @@ def _run_rg_gate_calibration(args) -> int:
             "min_len": min_len,
             "max_len": max_len,
             "seed": seed,
-        }
+        },
     }
 
     out_path = Path(args.out)

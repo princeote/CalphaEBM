@@ -78,9 +78,9 @@ def _gate(model: torch.nn.Module, name: str) -> float:
 
 
 def _collect_subterms(
-    model:  torch.nn.Module,
-    R:      torch.Tensor,
-    seq:    torch.Tensor,
+    model: torch.nn.Module,
+    R: torch.Tensor,
+    seq: torch.Tensor,
     lengths: torch.Tensor | None = None,
     exclude_subterms: set[str] | None = None,
 ) -> dict[str, torch.Tensor]:
@@ -107,9 +107,9 @@ def _collect_subterms(
             except TypeError:
                 out["local_thetatheta"] = g * local.theta_theta_energy(R)
         if hasattr(local, "delta_phi_energy") and "delta_phi" not in _skip:
-            out["local_deltaphi"]   = g * local.delta_phi_energy(R, lengths=lengths)
+            out["local_deltaphi"] = g * local.delta_phi_energy(R, lengths=lengths)
         if hasattr(local, "phi_phi_energy") and "phi_phi" not in _skip:
-            out["local_phiphi"]     = g * local.phi_phi_energy(R, seq, lengths=lengths)
+            out["local_phiphi"] = g * local.phi_phi_energy(R, seq, lengths=lengths)
 
     # ── secondary ──────────────────────────────────────────────────────
     sec = getattr(model, "secondary", None)
@@ -118,11 +118,11 @@ def _collect_subterms(
         try:
             E_ram, E_hb_a, E_hb_b = sec.subterm_energies(R, seq, lengths=lengths)
             if "ram" not in _skip:
-                out["secondary_ram"]      = g * E_ram
+                out["secondary_ram"] = g * E_ram
             if "hb_alpha" not in _skip:
                 out["secondary_hb_alpha"] = g * E_hb_a
             if "hb_beta" not in _skip:
-                out["secondary_hb_beta"]  = g * E_hb_b
+                out["secondary_hb_beta"] = g * E_hb_b
         except Exception:
             out["secondary"] = g * sec(R, seq)
 
@@ -167,29 +167,29 @@ def _pairwise_ratio_loss(
 ) -> torch.Tensor:
     """Pairwise ratio violation loss over a list of |E| tensors."""
     device = vals[0].device
-    dtype  = vals[0].dtype
+    dtype = vals[0].dtype
     if len(vals) < 2:
         return torch.zeros((), device=device, dtype=dtype)
-    r_t     = torch.tensor(r,       device=device, dtype=dtype)
+    r_t = torch.tensor(r, device=device, dtype=dtype)
     inv_r_t = torch.tensor(1.0 / r, device=device, dtype=dtype)
-    loss    = torch.zeros((), device=device, dtype=dtype)
+    loss = torch.zeros((), device=device, dtype=dtype)
     for i in range(len(vals)):
         for j in range(len(vals)):
             if i == j:
                 continue
             ratio = vals[i] / (vals[j] + eps)
-            loss  = loss + F.relu(ratio - r_t)     ** 2
-            loss  = loss + F.relu(inv_r_t - ratio) ** 2
+            loss = loss + F.relu(ratio - r_t) ** 2
+            loss = loss + F.relu(inv_r_t - ratio) ** 2
     return loss
 
 
 def energy_balance_loss(
-    model:  torch.nn.Module,
-    R:      torch.Tensor,
-    seq:    torch.Tensor,
-    r:      float = 7.0,
+    model: torch.nn.Module,
+    R: torch.Tensor,
+    seq: torch.Tensor,
+    r: float = 7.0,
     r_term: float = 4.0,
-    eps:    float = 1e-6,
+    eps: float = 1e-6,
     lengths: torch.Tensor | None = None,
     exclude_subterms: set[str] | None = None,
 ) -> tuple[torch.Tensor, dict[str, float], dict[str, float]]:
@@ -223,19 +223,14 @@ def energy_balance_loss(
       term_absmeans     : dict[str, float] — active term mean(|gate×E|), aggregated.
     """
     device = R.device
-    dtype  = R.dtype
+    dtype = R.dtype
 
-    subterms = _collect_subterms(model, R, seq, lengths=lengths,
-                                  exclude_subterms=exclude_subterms)
+    subterms = _collect_subterms(model, R, seq, lengths=lengths, exclude_subterms=exclude_subterms)
 
     # mean(|E|) per subterm
-    absmeans: dict[str, torch.Tensor] = {
-        name: E.abs().mean() for name, E in subterms.items()
-    }
+    absmeans: dict[str, torch.Tensor] = {name: E.abs().mean() for name, E in subterms.items()}
 
-    subterm_absmeans: dict[str, float] = {
-        name: float(v.detach().item()) for name, v in absmeans.items()
-    }
+    subterm_absmeans: dict[str, float] = {name: float(v.detach().item()) for name, v in absmeans.items()}
 
     # ── subterm-level loss (r) ─────────────────────────────────────────
     sub_vals = list(absmeans.values())
@@ -253,9 +248,7 @@ def energy_balance_loss(
         else:
             term_agg[name] = val
 
-    term_absmeans: dict[str, float] = {
-        name: float(v.detach().item()) for name, v in term_agg.items()
-    }
+    term_absmeans: dict[str, float] = {name: float(v.detach().item()) for name, v in term_agg.items()}
 
     # ── term-level loss (r_term) ───────────────────────────────────────
     term_vals = list(term_agg.values())

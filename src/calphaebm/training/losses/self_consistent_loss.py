@@ -161,10 +161,9 @@ class SelfConsistentLoss(nn.Module):
             E_neg = E_all[1::2]  # (N,)
 
             # Q-scaled margin per negative
-            q_available = hasattr(negs[0], 'q') and negs[0].q is not None
+            q_available = hasattr(negs[0], "q") and negs[0].q is not None
             if q_available:
-                q_vals = torch.tensor(
-                    [neg.q for neg in negs], device=self.device, dtype=torch.float32)
+                q_vals = torch.tensor([neg.q for neg in negs], device=self.device, dtype=torch.float32)
                 delta_q = (1.0 - q_vals).clamp(min=0.0)
                 per_pair_margin = _saturating_margin(delta_q, self.margin_m, self.margin_alpha)
             else:

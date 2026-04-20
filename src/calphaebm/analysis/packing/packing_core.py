@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -29,20 +29,20 @@ import numpy as np
 from calphaebm.utils.logging import get_logger
 
 from .packing_config import (
+    DEFAULT_N_STRUCTURES,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEGMENTS_PT,
-    DEFAULT_N_STRUCTURES,
-    DEFAULT_SIGMA_MIN,
     DEFAULT_SIGMA_MAX,
+    DEFAULT_SIGMA_MIN,
+    EXCLUDE,
+    MAX_DIST,
+    R_CUT,
+    R_ON,
     SHELL_CUTOFFS,
     SHELL_HALF_WIDTH,
-    SHORT_GATE_ON,
     SHORT_GATE_OFF,
-    R_ON,
-    R_CUT,
-    MAX_DIST,
+    SHORT_GATE_ON,
     TOPK,
-    EXCLUDE,
 )
 from .parking_data_loader import load_segments, segments_to_coord_batch
 
@@ -54,6 +54,7 @@ FEATURE_NAMES = ["n_tight", "n_medium", "n_loose", "mean_r", "std_r", "inv_sq"]
 # ─────────────────────────────────────────────────────────────────────────────
 # Geometry helpers (self-contained — no model import required)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _cosine_gate(r, r_on: float, r_off: float):
     x = ((r - r_on) / (r_off - r_on)).clamp(0.0, 1.0)
@@ -68,9 +69,10 @@ def _cosine_switch(r, r_on: float, r_cut: float):
 def _topk_distances(R, k: int = TOPK, exclude: int = EXCLUDE, max_dist: float = MAX_DIST):
     """Return (B, L, k) Cα–Cα distances; excluded/OOB pairs → +inf."""
     import torch
+
     B, L, _ = R.shape
-    diff = R.unsqueeze(2) - R.unsqueeze(1)   # (B,L,L,3)
-    dist = diff.norm(dim=-1)                  # (B,L,L)
+    diff = R.unsqueeze(2) - R.unsqueeze(1)  # (B,L,L,3)
+    dist = diff.norm(dim=-1)  # (B,L,L)
 
     mask = torch.ones(L, L, dtype=torch.bool, device=R.device)
     for d in range(-exclude, exclude + 1):
@@ -85,11 +87,13 @@ def _topk_distances(R, k: int = TOPK, exclude: int = EXCLUDE, max_dist: float = 
     k_use = min(k, L - 2 * exclude - 1)
     if k_use <= 0:
         import torch as t
+
         return t.full((B, L, k), float("inf"), device=R.device)
 
     topk, _ = dist.topk(k_use, dim=-1, largest=False)
     if k_use < k:
         import torch as t
+
         pad = t.full((B, L, k - k_use), float("inf"), device=R.device)
         topk = t.cat([topk, pad], dim=-1)
 
@@ -103,20 +107,20 @@ def _raw_features(r, tau: float):
     tight_cut, medium_cut, loose_cut = SHELL_CUTOFFS
     valid_f = (r < MAX_DIST - 1e-4).float()
     n_valid = valid_f.sum(-1).clamp(min=1)
-    r_safe  = r.clamp(max=MAX_DIST)
+    r_safe = r.clamp(max=MAX_DIST)
 
     sw_short = _cosine_gate(r_safe, SHORT_GATE_ON, SHORT_GATE_OFF) * valid_f
-    sw_long  = _cosine_switch(r_safe, R_ON, R_CUT)
+    sw_long = _cosine_switch(r_safe, R_ON, R_CUT)
 
     tau_c = max(tau, 1e-3)
-    n_tight  = (torch.sigmoid((tight_cut  - r_safe) / tau_c) * sw_short).sum(-1)
+    n_tight = (torch.sigmoid((tight_cut - r_safe) / tau_c) * sw_short).sum(-1)
     n_medium = (torch.sigmoid((medium_cut - r_safe) / tau_c) * sw_short).sum(-1)
-    n_loose  = (torch.sigmoid((loose_cut  - r_safe) / tau_c) * sw_short * sw_long).sum(-1)
+    n_loose = (torch.sigmoid((loose_cut - r_safe) / tau_c) * sw_short * sw_long).sum(-1)
 
-    mean_r  = (r_safe * valid_f).sum(-1) / n_valid
+    mean_r = (r_safe * valid_f).sum(-1) / n_valid
     diff_sq = (r_safe - mean_r.unsqueeze(-1)).pow(2) * valid_f
-    std_r   = (diff_sq.sum(-1) / n_valid + 1e-4).sqrt()
-    inv_sq  = (sw_short / (r_safe.pow(2) + 1.0)).sum(-1)
+    std_r = (diff_sq.sum(-1) / n_valid + 1e-4).sqrt()
+    inv_sq = (sw_short / (r_safe.pow(2) + 1.0)).sum(-1)
 
     return torch.stack([n_tight, n_medium, n_loose, mean_r, std_r, inv_sq], dim=-1)
 
@@ -125,30 +129,32 @@ def _raw_features(r, tau: float):
 # Data structures
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class FeatureStats:
     mean: float
-    std:  float
-    p5:   float
-    p95:  float
+    std: float
+    p5: float
+    p95: float
 
 
 @dataclass
 class GeometryCalibration:
     """All parameters consumed by _GeometryFeatures via --packing-geom-calibration."""
-    sig_tau:             float
-    norm_n_tight:        float
-    norm_n_medium:       float
-    norm_n_loose:        float
-    norm_mean_r_centre:  float
-    norm_mean_r_scale:   float
-    norm_std_r:          float
-    norm_inv_sq:         float
+
+    sig_tau: float
+    norm_n_tight: float
+    norm_n_medium: float
+    norm_n_loose: float
+    norm_mean_r_centre: float
+    norm_mean_r_scale: float
+    norm_std_r: float
+    norm_inv_sq: float
     # Provenance
-    sigma_min:           float
-    sigma_max:           float
-    n_structures:        int
-    sigma_geom:          float
+    sigma_min: float
+    sigma_max: float
+    n_structures: int
+    sigma_geom: float
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -174,6 +180,7 @@ class GeometryCalibration:
 # Main analyser
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class PackingGeometryAnalyzer:
     """Calibrates _GeometryFeatures parameters from a processed segments file."""
 
@@ -182,7 +189,7 @@ class PackingGeometryAnalyzer:
         output_dir: Path = DEFAULT_OUTPUT_DIR,
     ):
         self.output_dir = Path(output_dir)
-        self.data_dir   = self.output_dir / "data"
+        self.data_dir = self.output_dir / "data"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -212,15 +219,14 @@ class PackingGeometryAnalyzer:
         # the score weighting is flat in log-space (σ² × 1/σ² = const), so the
         # representative sigma is the geometric mean.
         sigma_geom = math.exp(0.5 * (math.log(sigma_min) + math.log(sigma_max)))
-        sig_tau    = sigma_geom * math.sqrt(2)
-        logger.info("sig_tau = exp(mean(log %.3f, log %.3f)) × √2 = %.4f Å",
-                    sigma_min, sigma_max, sig_tau)
+        sig_tau = sigma_geom * math.sqrt(2)
+        logger.info("sig_tau = exp(mean(log %.3f, log %.3f)) × √2 = %.4f Å", sigma_min, sigma_max, sig_tau)
 
         # ── Step 2: per-cutoff distance spread (diagnostic) ───────────────────
         with torch.no_grad():
-            diff     = R_batch.unsqueeze(2) - R_batch.unsqueeze(1)
+            diff = R_batch.unsqueeze(2) - R_batch.unsqueeze(1)
             dist_all = diff.norm(dim=-1)
-            eye      = torch.eye(R_batch.shape[1], dtype=torch.bool).unsqueeze(0)
+            eye = torch.eye(R_batch.shape[1], dtype=torch.bool).unsqueeze(0)
             dist_all = dist_all.masked_fill(eye, float("inf"))
             dist_flat = dist_all[dist_all < float("inf")]
 
@@ -237,15 +243,15 @@ class PackingGeometryAnalyzer:
         logger.info("Computing feature statistics at tau=%.4fÅ ...", sig_tau)
         with torch.no_grad():
             r_batch = _topk_distances(R_batch)
-            feats   = _raw_features(r_batch, sig_tau)        # (B, max_L, 6)
-            has_nbr = (r_batch < MAX_DIST - 1e-4).any(-1)   # (B, max_L) — valid residues
+            feats = _raw_features(r_batch, sig_tau)  # (B, max_L, 6)
+            has_nbr = (r_batch < MAX_DIST - 1e-4).any(-1)  # (B, max_L) — valid residues
 
         feature_stats: Dict[str, FeatureStats] = {}
-        raw_arrays:    Dict[str, np.ndarray]   = {}
+        raw_arrays: Dict[str, np.ndarray] = {}
 
         logger.info("%-12s  %8s  %8s  %8s  %8s", "feature", "mean", "std", "p5", "p95")
         for i, name in enumerate(FEATURE_NAMES):
-            f  = feats[:, :, i][has_nbr].numpy()
+            f = feats[:, :, i][has_nbr].numpy()
             raw_arrays[name] = f
             fs = FeatureStats(
                 mean=float(f.mean()),
@@ -254,23 +260,22 @@ class PackingGeometryAnalyzer:
                 p95=float(np.percentile(f, 95)),
             )
             feature_stats[name] = fs
-            logger.info("  %-12s  %8.4f  %8.4f  %8.4f  %8.4f",
-                        name, fs.mean, fs.std, fs.p5, fs.p95)
+            logger.info("  %-12s  %8.4f  %8.4f  %8.4f  %8.4f", name, fs.mean, fs.std, fs.p5, fs.p95)
 
         # ── Step 4: normalisation parameters ──────────────────────────────────
         cal = GeometryCalibration(
-            sig_tau             = sig_tau,
-            norm_n_tight        = max(feature_stats["n_tight"].mean,  1e-6),
-            norm_n_medium       = max(feature_stats["n_medium"].mean, 1e-6),
-            norm_n_loose        = max(feature_stats["n_loose"].mean,  1e-6),
-            norm_mean_r_centre  = feature_stats["mean_r"].mean,
-            norm_mean_r_scale   = max(feature_stats["mean_r"].std,    0.1),
-            norm_std_r          = max(feature_stats["std_r"].mean,    1e-6),
-            norm_inv_sq         = max(feature_stats["inv_sq"].mean,   1e-8),
-            sigma_min           = sigma_min,
-            sigma_max           = sigma_max,
-            n_structures        = len(data),
-            sigma_geom          = sigma_geom,
+            sig_tau=sig_tau,
+            norm_n_tight=max(feature_stats["n_tight"].mean, 1e-6),
+            norm_n_medium=max(feature_stats["n_medium"].mean, 1e-6),
+            norm_n_loose=max(feature_stats["n_loose"].mean, 1e-6),
+            norm_mean_r_centre=feature_stats["mean_r"].mean,
+            norm_mean_r_scale=max(feature_stats["mean_r"].std, 0.1),
+            norm_std_r=max(feature_stats["std_r"].mean, 1e-6),
+            norm_inv_sq=max(feature_stats["inv_sq"].mean, 1e-8),
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            n_structures=len(data),
+            sigma_geom=sigma_geom,
         )
         cal.log()
 
@@ -312,20 +317,20 @@ class PackingGeometryAnalyzer:
         cal_json_path = self.data_dir / "geometry_feature_calibration.json"
         payload = {
             "norm_params": {
-                "sig_tau":            cal.sig_tau,
-                "norm_n_tight":       cal.norm_n_tight,
-                "norm_n_medium":      cal.norm_n_medium,
-                "norm_n_loose":       cal.norm_n_loose,
+                "sig_tau": cal.sig_tau,
+                "norm_n_tight": cal.norm_n_tight,
+                "norm_n_medium": cal.norm_n_medium,
+                "norm_n_loose": cal.norm_n_loose,
                 "norm_mean_r_centre": cal.norm_mean_r_centre,
-                "norm_mean_r_scale":  cal.norm_mean_r_scale,
-                "norm_std_r":         cal.norm_std_r,
-                "norm_inv_sq":        cal.norm_inv_sq,
+                "norm_mean_r_scale": cal.norm_mean_r_scale,
+                "norm_std_r": cal.norm_std_r,
+                "norm_inv_sq": cal.norm_inv_sq,
             },
             "provenance": {
-                "sigma_min":      cal.sigma_min,
-                "sigma_max":      cal.sigma_max,
-                "sigma_geom":     cal.sigma_geom,
-                "n_structures":   cal.n_structures,
+                "sigma_min": cal.sigma_min,
+                "sigma_max": cal.sigma_max,
+                "sigma_geom": cal.sigma_geom,
+                "n_structures": cal.n_structures,
                 "tau_derivation": "sig_tau = exp(mean(log σ_min, log σ_max)) × √2",
             },
         }
@@ -341,18 +346,15 @@ class PackingGeometryAnalyzer:
         # 3. calibration_summary.json — human-readable
         summary = {
             "calibration": cal.to_dict(),
-            "feature_stats": {
-                name: asdict(fs) for name, fs in feature_stats.items()
-            },
+            "feature_stats": {name: asdict(fs) for name, fs in feature_stats.items()},
             "normalised_stats": normed_stats,
         }
-        (self.output_dir / "calibration_summary.json").write_text(
-            json.dumps(summary, indent=2)
-        )
+        (self.output_dir / "calibration_summary.json").write_text(json.dumps(summary, indent=2))
 
         # 4. Diagnostic plot
         try:
             from .packing_plots import plot_feature_distributions
+
             plot_feature_distributions(
                 raw_arrays=raw_arrays,
                 feature_stats=feature_stats,

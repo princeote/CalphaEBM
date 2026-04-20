@@ -10,16 +10,17 @@ from typing import Optional
 
 import numpy as np
 
-from calphaebm.utils.logging import get_logger
 from calphaebm.data.id_utils import normalize_to_entry_ids
+from calphaebm.utils.logging import get_logger
+
 from .config import DEFAULT_OUTPUT_DIR
-from .data_loader import load_pdb_list, extract_geometry_from_chains
+from .data_loader import extract_geometry_from_chains, load_pdb_list
 from .plots import (
     plot_bond_length_distribution,
+    plot_delta_phi_potential,
     plot_figure_2,
     plot_figure_3,
     plot_phi_phi_correlation,
-    plot_delta_phi_potential,
 )
 
 logger = get_logger()
@@ -79,7 +80,9 @@ class BackboneAnalyzer:
         theta_all = np.concatenate([self.theta_i, self.theta_ip1])
         plot_figure_2(theta_all, self.phi, self.output_dir, self.data_dir, save_figures=generate_plots)
 
-        plot_figure_3(self.theta_i, self.theta_ip1, self.phi, self.output_dir, self.data_dir, save_figures=generate_plots)
+        plot_figure_3(
+            self.theta_i, self.theta_ip1, self.phi, self.output_dir, self.data_dir, save_figures=generate_plots
+        )
 
         plot_phi_phi_correlation(self.phi, self.output_dir, self.data_dir, save_figures=generate_plots)
 

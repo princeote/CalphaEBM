@@ -11,8 +11,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from calphaebm.geometry.internal import bond_lengths, bond_angles, torsions
 from calphaebm.data.pdb_parse import download_cif, parse_cif_ca_chains, split_chain_on_gaps
+from calphaebm.geometry.internal import bond_angles, bond_lengths, torsions
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -81,8 +81,8 @@ def extract_geometry_from_chains(
                 # Avoid building autograd graphs during analysis
                 with torch.no_grad():
                     lengths = bond_lengths(R).squeeze(0).cpu().numpy()  # (L-1,)
-                    theta = bond_angles(R).squeeze(0).cpu().numpy()     # (L-2,)
-                    phi = torsions(R).squeeze(0).cpu().numpy()          # (L-3,)
+                    theta = bond_angles(R).squeeze(0).cpu().numpy()  # (L-2,)
+                    phi = torsions(R).squeeze(0).cpu().numpy()  # (L-3,)
 
                 theta_deg = np.degrees(theta).astype(np.float32)
                 phi_deg = np.degrees(phi).astype(np.float32)

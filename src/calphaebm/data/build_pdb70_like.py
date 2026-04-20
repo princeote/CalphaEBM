@@ -9,13 +9,13 @@ from typing import List, Literal, Optional, Set, Tuple
 import requests
 from tqdm import tqdm
 
-from calphaebm.utils.logging import get_logger
 from calphaebm.data.rcsb_query import (
     PolymerEntityInfo,
     graphql_polymer_entities_for_entries,
     is_protein_only_entry,
     search_entries_xray_resolution,
 )
+from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
@@ -180,7 +180,9 @@ def build_pdb70_like(
     return BuildResult(
         output_ids=output_ids,
         output_type=output_type,
-        polymer_entity_ids_selected=polymer_entity_ids[:target_n] if output_type == "polymer_entity" else polymer_entity_ids,
+        polymer_entity_ids_selected=polymer_entity_ids[:target_n]
+        if output_type == "polymer_entity"
+        else polymer_entity_ids,
         entry_ids_selected=entry_ids[:target_n] if output_type == "entry" else entry_ids,
         n_candidate_entries_scanned=n_scanned,
     )
@@ -189,6 +191,7 @@ def build_pdb70_like(
 # --------------------------------------------------------------------------------------
 # Backwards-compatible wrappers (Option B)
 # --------------------------------------------------------------------------------------
+
 
 def build_pdb70_like_polymer_entities(
     target_n: int = 1000,

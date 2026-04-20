@@ -34,9 +34,7 @@ class EnergyObserver(Observer):
         self.log_every = log_every
         self.steps = []
         self.energies = []
-        self.term_energies = {
-            k: [] for k in ["local", "repulsion", "secondary", "packing"]
-        }
+        self.term_energies = {k: [] for k in ["local", "repulsion", "secondary", "packing"]}
 
     def update(self, step: int, R: torch.Tensor, seq: torch.Tensor, **kwargs):
         if step % self.log_every == 0:
@@ -88,11 +86,9 @@ class MinDistanceObserver(Observer):
         # Build correct exclusion mask: True where |i-j| > exclude
         idx = torch.arange(L, device=R.device)
         sep = (idx[:, None] - idx[None, :]).abs()  # (L, L)
-        allowed = (sep > self.exclude)              # (L, L) — no wrap-around
+        allowed = sep > self.exclude  # (L, L) — no wrap-around
         # Upper triangle only (count each pair once)
-        triu = torch.triu(
-            torch.ones(L, L, dtype=torch.bool, device=R.device), diagonal=1
-        )
+        triu = torch.triu(torch.ones(L, L, dtype=torch.bool, device=R.device), diagonal=1)
         allowed = allowed & triu  # (L, L)
 
         min_vals = []
@@ -142,17 +138,13 @@ class ClippingObserver(Observer):
         self.clip_fractions = []
         self.max_forces = []
 
-    def update(
-        self, step: int, R: torch.Tensor, force_cap: float | None = None, **kwargs
-    ):
+    def update(self, step: int, R: torch.Tensor, force_cap: float | None = None, **kwargs):
         if step % self.log_every == 0 and "forces" in kwargs:
             forces = kwargs["forces"]
             force_norms = safe_norm(forces, dim=-1)
 
             max_force = force_norms.max().item()
-            clip_frac = (
-                (force_norms > force_cap).float().mean().item() if force_cap else 0.0
-            )
+            clip_frac = (force_norms > force_cap).float().mean().item() if force_cap else 0.0
 
             self.steps.append(step)
             self.max_forces.append(max_force)

@@ -32,26 +32,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.stats import gaussian_kde
 
 from calphaebm.utils.logging import get_logger
 
 from .config import (
-    BOND_LENGTH_MIN,
-    BOND_LENGTH_MAX,
     BOND_LENGTH_IDEAL,
-    THETA_MIN,
-    THETA_MAX,
-    THETA_BINS,
-    PHI_MIN,
-    PHI_MAX,
-    PHI_BINS,
+    BOND_LENGTH_MAX,
+    BOND_LENGTH_MIN,
     DELTA_PHI_BINS,
-    MAX_POINTS_FOR_KDE,
-    PLOT_DPI,
     DELTA_PHI_EPS,
+    MAX_POINTS_FOR_KDE,
+    PHI_BINS,
+    PHI_MAX,
+    PHI_MIN,
+    PLOT_DPI,
+    THETA_BINS,
+    THETA_MAX,
+    THETA_MIN,
 )
 
 logger = get_logger()
@@ -98,8 +98,11 @@ def _hist2d_to_energy(
     if smooth_sigma and smooth_sigma > 0:
         try:
             from scipy.ndimage import gaussian_filter
+
             mode_y = "wrap" if periodic_y else "nearest"
-            hist = gaussian_filter(hist, sigma=(smooth_sigma, smooth_sigma), mode=("nearest", mode_y)).astype(np.float32)
+            hist = gaussian_filter(hist, sigma=(smooth_sigma, smooth_sigma), mode=("nearest", mode_y)).astype(
+                np.float32
+            )
         except ImportError:
             logger.warning("scipy not available, skipping 2D smoothing")
 
@@ -120,6 +123,7 @@ def plot_bond_length_distribution(
 
     try:
         import pandas as pd
+
         _maybe_write_csv(pd.DataFrame({"bond_length": bond_lengths_all}), data_dir / "bond_lengths_data.csv")
     except ImportError:
         pass
@@ -164,6 +168,7 @@ def plot_figure_2(
 
     try:
         import pandas as pd
+
         _maybe_write_csv(pd.DataFrame({"theta_deg": theta_angles}), data_dir / "theta_angles_deg.csv")
         _maybe_write_csv(pd.DataFrame({"phi_deg": phi_angles}), data_dir / "phi_angles_deg.csv")
     except ImportError:
@@ -307,28 +312,40 @@ def plot_figure_3(
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     sc1 = _kde_scatter(
-        axes[0], theta_i, phi,
-        r"$\theta_i$ (deg)", r"$\phi$ (deg)",
+        axes[0],
+        theta_i,
+        phi,
+        r"$\theta_i$ (deg)",
+        r"$\phi$ (deg)",
         "(a) φ vs θ_i",
-        (THETA_MIN, THETA_MAX), (PHI_MIN, PHI_MAX),
+        (THETA_MIN, THETA_MAX),
+        (PHI_MIN, PHI_MAX),
     )
     plt.colorbar(sc1, ax=axes[0], label="Density")
 
     sc2 = _kde_scatter(
-        axes[1], theta_i, theta_ip1,
-        r"$\theta_i$ (deg)", r"$\theta_{i+1}$ (deg)",
+        axes[1],
+        theta_i,
+        theta_ip1,
+        r"$\theta_i$ (deg)",
+        r"$\theta_{i+1}$ (deg)",
         "(b) θ_i vs θ_{i+1}",
-        (THETA_MIN, THETA_MAX), (THETA_MIN, THETA_MAX),
+        (THETA_MIN, THETA_MAX),
+        (THETA_MIN, THETA_MAX),
     )
     axes[1].plot([THETA_MIN, THETA_MAX], [THETA_MIN, THETA_MAX], "k--", linewidth=1, alpha=0.5)
     plt.colorbar(sc2, ax=axes[1], label="Density")
 
     if len(phi) >= 2:
         sc3 = _kde_scatter(
-            axes[2], phi[:-1], phi[1:],
-            r"$\phi_i$ (deg)", r"$\phi_{i+1}$ (deg)",
+            axes[2],
+            phi[:-1],
+            phi[1:],
+            r"$\phi_i$ (deg)",
+            r"$\phi_{i+1}$ (deg)",
             "(c) φ_i vs φ_{i+1}",
-            (PHI_MIN, PHI_MAX), (PHI_MIN, PHI_MAX),
+            (PHI_MIN, PHI_MAX),
+            (PHI_MIN, PHI_MAX),
         )
         axes[2].plot([PHI_MIN, PHI_MAX], [PHI_MIN, PHI_MAX], "k--", linewidth=1, alpha=0.5)
         plt.colorbar(sc3, ax=axes[2], label="Density")
@@ -352,10 +369,14 @@ def plot_phi_phi_correlation(phi, output_dir: Path, data_dir: Path, save_figures
 
     fig, ax = plt.subplots(figsize=(8, 8))
     sc = _kde_scatter(
-        ax, phi_i, phi_ip1,
-        r"$\phi_i$ (deg)", r"$\phi_{i+1}$ (deg)",
+        ax,
+        phi_i,
+        phi_ip1,
+        r"$\phi_i$ (deg)",
+        r"$\phi_{i+1}$ (deg)",
         "φ-φ Correlation",
-        (PHI_MIN, PHI_MAX), (PHI_MIN, PHI_MAX),
+        (PHI_MIN, PHI_MAX),
+        (PHI_MIN, PHI_MAX),
     )
     ax.plot([PHI_MIN, PHI_MAX], [PHI_MIN, PHI_MAX], "r--", linewidth=2, alpha=0.7)
     plt.colorbar(sc, ax=ax, label="Density")

@@ -28,17 +28,13 @@ from typing import Dict, Optional
 import torch
 import torch.nn.functional as F
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.utils.math import safe_norm, wrap_to_pi
-
 
 # ---------------------------------------------------------------------------
 # Shared utilities
 # ---------------------------------------------------------------------------
+
 
 def _rms_force(F_tensor: torch.Tensor) -> torch.Tensor:
     """RMS force magnitude across all atoms."""
@@ -55,22 +51,20 @@ def _term_force_rms(
 ) -> torch.Tensor:
     """RMS gated force for one energy term, keeping graph for backward."""
     Rg = R.detach().requires_grad_(True)
-    E  = (gate * term_fn(Rg, seq, lengths=lengths)).sum()
+    E = (gate * term_fn(Rg, seq, lengths=lengths)).sum()
     Fv = -torch.autograd.grad(E, Rg, create_graph=create_graph)[0]
     return _rms_force(Fv)
 
 
 def _symmetric_hinge(F_a: torch.Tensor, F_b: torch.Tensor, target: float) -> torch.Tensor:
     """Penalize when either term dominates: ratio > target in either direction."""
-    return (
-        F.relu(F_a / (F_b + 1e-8) - target) +
-        F.relu(F_b / (F_a + 1e-8) - target)
-    )
+    return F.relu(F_a / (F_b + 1e-8) - target) + F.relu(F_b / (F_a + 1e-8) - target)
 
 
 # ---------------------------------------------------------------------------
 # Cartesian perturbation (legacy — ablations only)
 # ---------------------------------------------------------------------------
+
 
 def _perturb_cartesian(
     R: torch.Tensor,
@@ -86,18 +80,15 @@ def _perturb_cartesian(
     NOTE: Can stretch bonds. Use _perturb_ic() for run19+ training.
     """
     B, L, _ = R.shape
-    device   = R.device
-    dtype    = R.dtype
+    device = R.device
+    dtype = R.dtype
 
-    multi_scale = (
-        sigma_min is not None
-        and sigma_max is not None
-        and sigma_min < sigma_max
-    )
+    multi_scale = sigma_min is not None and sigma_max is not None and sigma_min < sigma_max
 
     if multi_scale:
-        log_sigmas  = torch.empty(B, device=device, dtype=dtype).uniform_(
-                          math.log(float(sigma_min)), math.log(float(sigma_max)))
+        log_sigmas = torch.empty(B, device=device, dtype=dtype).uniform_(
+            math.log(float(sigma_min)), math.log(float(sigma_max))
+        )
         sigma_bcast = log_sigmas.exp()[:, None, None]
     else:
         sigma_bcast = float(sigma_thermal)
@@ -121,6 +112,7 @@ def _perturb_cartesian(
 # ---------------------------------------------------------------------------
 # IC perturbation — correct for run19+ training
 # ---------------------------------------------------------------------------
+
 
 def _perturb_ic(
     R: torch.Tensor,
@@ -163,28 +155,24 @@ def _perturb_ic(
         R_perturbed: (B, L, 3) with bonds exactly 3.8Å.
     """
     B, L, _ = R.shape
-    device   = R.device
-    dtype    = R.dtype
+    device = R.device
+    dtype = R.dtype
 
     with torch.no_grad():
-        theta, phi = coords_to_internal(R)     # (B, L-2), (B, L-3)
-        anchor     = extract_anchor(R)         # (B, 3, 3)
+        theta, phi = coords_to_internal(R)  # (B, L-2), (B, L-3)
+        anchor = extract_anchor(R)  # (B, 3, 3)
 
     # Valid IC masks for padding
     if lengths is not None:
         idx_t = torch.arange(theta.shape[1], device=device)
         idx_p = torch.arange(phi.shape[1], device=device)
         valid_theta = (idx_t.unsqueeze(0) < (lengths.unsqueeze(1) - 2)).float()
-        valid_phi   = (idx_p.unsqueeze(0) < (lengths.unsqueeze(1) - 3)).float()
+        valid_phi = (idx_p.unsqueeze(0) < (lengths.unsqueeze(1) - 3)).float()
     else:
         valid_theta = None
-        valid_phi   = None
+        valid_phi = None
 
-    multi_scale = (
-        sigma_min is not None
-        and sigma_max is not None
-        and sigma_min < sigma_max
-    )
+    multi_scale = sigma_min is not None and sigma_max is not None and sigma_min < sigma_max
 
     # θ noise — fixed sigma_theta
     noise_t = torch.randn_like(theta)
@@ -195,11 +183,12 @@ def _perturb_ic(
 
     # φ noise — either fixed sigma_phi or log-uniform schedule
     if multi_scale:
-        log_sigmas    = torch.empty(B, device=device, dtype=dtype).uniform_(
-                            math.log(float(sigma_min)), math.log(float(sigma_max)))
-        phi_sigmas    = log_sigmas.exp()[:, None]   # (B, 1) → (B, L-3)
+        log_sigmas = torch.empty(B, device=device, dtype=dtype).uniform_(
+            math.log(float(sigma_min)), math.log(float(sigma_max))
+        )
+        phi_sigmas = log_sigmas.exp()[:, None]  # (B, 1) → (B, L-3)
     else:
-        phi_sigmas    = float(sigma_phi)
+        phi_sigmas = float(sigma_phi)
 
     noise_p = torch.randn_like(phi)
     if valid_phi is not None:
@@ -208,7 +197,7 @@ def _perturb_ic(
 
     # Large φ perturbations on random residues — dihedral clashes
     if clash_phi_frac > 0 and phi.shape[1] > 1:
-        n_clash  = max(1, int(clash_phi_frac * phi.shape[1]))
+        n_clash = max(1, int(clash_phi_frac * phi.shape[1]))
         clash_mask = torch.zeros_like(phi)
         for b in range(B):
             n_valid_p = int(lengths[b].item()) - 3 if lengths is not None else phi.shape[1]
@@ -235,6 +224,7 @@ def _perturb_ic(
 # Cartesian force_balance_loss (kept for ablations)
 # ---------------------------------------------------------------------------
 
+
 def force_balance_loss(
     model: torch.nn.Module,
     R: torch.Tensor,
@@ -252,22 +242,26 @@ def force_balance_loss(
     if not hasattr(model, "local"):
         return torch.zeros((), device=R.device, dtype=R.dtype)
 
-    R_p     = _perturb_cartesian(
-        R, sigma_thermal=sigma_thermal, clash_frac=clash_frac,
-        clash_sigma=clash_sigma, sigma_min=sigma_min, sigma_max=sigma_max,
+    R_p = _perturb_cartesian(
+        R,
+        sigma_thermal=sigma_thermal,
+        clash_frac=clash_frac,
+        clash_sigma=clash_sigma,
+        sigma_min=sigma_min,
+        sigma_max=sigma_max,
     )
     F_local = _term_force_rms(model.gate_local, model.local, R_p, seq)
-    loss    = torch.zeros((), device=R.device, dtype=R.dtype)
+    loss = torch.zeros((), device=R.device, dtype=R.dtype)
 
     if model.secondary is not None:
-        F_ss  = _term_force_rms(model.gate_secondary, model.secondary, R_p, seq)
-        loss  = loss + _symmetric_hinge(F_local, F_ss, target_ss_ratio)
+        F_ss = _term_force_rms(model.gate_secondary, model.secondary, R_p, seq)
+        loss = loss + _symmetric_hinge(F_local, F_ss, target_ss_ratio)
     if model.packing is not None:
-        F_pk  = _term_force_rms(model.gate_packing, model.packing, R_p, seq)
-        loss  = loss + _symmetric_hinge(F_local, F_pk, target_pack_ratio)
+        F_pk = _term_force_rms(model.gate_packing, model.packing, R_p, seq)
+        loss = loss + _symmetric_hinge(F_local, F_pk, target_pack_ratio)
     if model.repulsion is not None:
         F_rep = _term_force_rms(model.gate_repulsion, model.repulsion, R_p, seq)
-        loss  = loss + _symmetric_hinge(F_local, F_rep, target_rep_ratio)
+        loss = loss + _symmetric_hinge(F_local, F_rep, target_rep_ratio)
 
     return loss
 
@@ -288,8 +282,12 @@ def force_balance_diagnostics(
     """Cartesian force balance diagnostics. Kept for ablations."""
     with torch.no_grad():
         R_p = _perturb_cartesian(
-            R, sigma_thermal=sigma_thermal, clash_frac=clash_frac,
-            clash_sigma=clash_sigma, sigma_min=sigma_min, sigma_max=sigma_max,
+            R,
+            sigma_thermal=sigma_thermal,
+            clash_frac=clash_frac,
+            clash_sigma=clash_sigma,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
         )
 
     scales: Dict[str, float] = {}
@@ -297,22 +295,25 @@ def force_balance_diagnostics(
     def _compute(gate, fn):
         with torch.enable_grad():
             Rg = R_p.detach().requires_grad_(True)
-            E  = (gate * fn(Rg, seq)).sum()
+            E = (gate * fn(Rg, seq)).sum()
             Fv = -torch.autograd.grad(E, Rg, create_graph=False)[0]
         return float(_rms_force(Fv).detach().item())
 
-    scales["local"]     = _compute(model.gate_local, model.local)
-    if model.repulsion  is not None: scales["repulsion"]  = _compute(model.gate_repulsion,  model.repulsion)
-    if model.secondary  is not None: scales["secondary"]  = _compute(model.gate_secondary,  model.secondary)
-    if model.packing    is not None: scales["packing"]    = _compute(model.gate_packing,    model.packing)
+    scales["local"] = _compute(model.gate_local, model.local)
+    if model.repulsion is not None:
+        scales["repulsion"] = _compute(model.gate_repulsion, model.repulsion)
+    if model.secondary is not None:
+        scales["secondary"] = _compute(model.gate_secondary, model.secondary)
+    if model.packing is not None:
+        scales["packing"] = _compute(model.gate_packing, model.packing)
 
-    ref     = scales.get("local", 1.0)
-    ratios  = {k: ref / (v + 1e-8) for k, v in scales.items() if k != "local"}
+    ref = scales.get("local", 1.0)
+    ratios = {k: ref / (v + 1e-8) for k, v in scales.items() if k != "local"}
     targets = {"repulsion": target_rep_ratio, "secondary": target_ss_ratio, "packing": target_pack_ratio}
-    met     = {
-        k: (ratios.get(k, 0.0) <= targets.get(k, 2.0)
-            and ratios.get(k, 0.0) >= 1.0 / targets.get(k, 2.0))
-        for k in targets if k in ratios
+    met = {
+        k: (ratios.get(k, 0.0) <= targets.get(k, 2.0) and ratios.get(k, 0.0) >= 1.0 / targets.get(k, 2.0))
+        for k in targets
+        if k in ratios
     }
     return {"scales": scales, "ratios": ratios, "targets": targets, "met": met}
 
@@ -320,6 +321,7 @@ def force_balance_diagnostics(
 # ---------------------------------------------------------------------------
 # IC force_balance_loss — correct for run19+ training
 # ---------------------------------------------------------------------------
+
 
 def force_balance_ic_loss(
     model: torch.nn.Module,
@@ -352,7 +354,7 @@ def force_balance_ic_loss(
     if not hasattr(model, "local"):
         return torch.zeros((), device=R.device, dtype=R.dtype)
 
-    R_p     = _perturb_ic(
+    R_p = _perturb_ic(
         R,
         sigma_theta=sigma_theta,
         sigma_phi=sigma_phi,
@@ -364,17 +366,17 @@ def force_balance_ic_loss(
         lengths=lengths,
     )
     F_local = _term_force_rms(model.gate_local, model.local, R_p, seq, lengths=lengths)
-    loss    = torch.zeros((), device=R.device, dtype=R.dtype)
+    loss = torch.zeros((), device=R.device, dtype=R.dtype)
 
     if model.secondary is not None:
-        F_ss  = _term_force_rms(model.gate_secondary, model.secondary, R_p, seq, lengths=lengths)
-        loss  = loss + _symmetric_hinge(F_local, F_ss, target_ss_ratio)
+        F_ss = _term_force_rms(model.gate_secondary, model.secondary, R_p, seq, lengths=lengths)
+        loss = loss + _symmetric_hinge(F_local, F_ss, target_ss_ratio)
     if model.packing is not None:
-        F_pk  = _term_force_rms(model.gate_packing, model.packing, R_p, seq, lengths=lengths)
-        loss  = loss + _symmetric_hinge(F_local, F_pk, target_pack_ratio)
+        F_pk = _term_force_rms(model.gate_packing, model.packing, R_p, seq, lengths=lengths)
+        loss = loss + _symmetric_hinge(F_local, F_pk, target_pack_ratio)
     if model.repulsion is not None:
         F_rep = _term_force_rms(model.gate_repulsion, model.repulsion, R_p, seq, lengths=lengths)
-        loss  = loss + _symmetric_hinge(F_local, F_rep, target_rep_ratio)
+        loss = loss + _symmetric_hinge(F_local, F_rep, target_rep_ratio)
 
     return loss
 
@@ -414,21 +416,24 @@ def force_balance_ic_diagnostics(
     def _compute(gate, fn):
         with torch.enable_grad():
             Rg = R_p.detach().requires_grad_(True)
-            E  = (gate * fn(Rg, seq, lengths=lengths)).sum()
+            E = (gate * fn(Rg, seq, lengths=lengths)).sum()
             Fv = -torch.autograd.grad(E, Rg, create_graph=False)[0]
         return float(_rms_force(Fv).detach().item())
 
-    scales["local"]     = _compute(model.gate_local, model.local)
-    if model.repulsion  is not None: scales["repulsion"]  = _compute(model.gate_repulsion,  model.repulsion)
-    if model.secondary  is not None: scales["secondary"]  = _compute(model.gate_secondary,  model.secondary)
-    if model.packing    is not None: scales["packing"]    = _compute(model.gate_packing,    model.packing)
+    scales["local"] = _compute(model.gate_local, model.local)
+    if model.repulsion is not None:
+        scales["repulsion"] = _compute(model.gate_repulsion, model.repulsion)
+    if model.secondary is not None:
+        scales["secondary"] = _compute(model.gate_secondary, model.secondary)
+    if model.packing is not None:
+        scales["packing"] = _compute(model.gate_packing, model.packing)
 
-    ref     = scales.get("local", 1.0)
-    ratios  = {k: ref / (v + 1e-8) for k, v in scales.items() if k != "local"}
+    ref = scales.get("local", 1.0)
+    ratios = {k: ref / (v + 1e-8) for k, v in scales.items() if k != "local"}
     targets = {"repulsion": target_rep_ratio, "secondary": target_ss_ratio, "packing": target_pack_ratio}
-    met     = {
-        k: (ratios.get(k, 0.0) <= targets.get(k, 2.0)
-            and ratios.get(k, 0.0) >= 1.0 / targets.get(k, 2.0))
-        for k in targets if k in ratios
+    met = {
+        k: (ratios.get(k, 0.0) <= targets.get(k, 2.0) and ratios.get(k, 0.0) >= 1.0 / targets.get(k, 2.0))
+        for k in targets
+        if k in ratios
     }
     return {"scales": scales, "ratios": ratios, "targets": targets, "met": met}

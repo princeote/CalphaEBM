@@ -264,7 +264,7 @@ def plot_all(
 
     # Get metadata
     n_frames = len(report.rmsd_series)
-    save_every = report.metadata.get('save_every', 10000)
+    save_every = report.metadata.get("save_every", 10000)
 
     # Convert steps to frames
     if burnin_steps > 0 and save_every > 0:

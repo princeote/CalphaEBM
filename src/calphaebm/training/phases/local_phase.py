@@ -15,10 +15,10 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
+from calphaebm.training.core.state import TrainingState
 from calphaebm.training.losses.dsm import dsm_ic_loss
 from calphaebm.training.validation.local_validator import LocalValidator
 from calphaebm.utils.logging import ProgressBar, get_logger
-from calphaebm.training.core.state import TrainingState
 
 logger = get_logger()
 
@@ -26,6 +26,7 @@ MAX_ATTEMPTS_MULTIPLIER = 10
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _read_local_weights(local_mod) -> dict:
     """Read lambda values from the local module (supports both old and 4-mer)."""
@@ -95,8 +96,8 @@ def _debug_state(local_mod) -> dict:
 
 # ── Main phase runner ────────────────────────────────────────────────────────
 
-def run_local_phase(trainer, config, train_loader, val_loader=None,
-                    native_structures=None, resume=None):
+
+def run_local_phase(trainer, config, train_loader, val_loader=None, native_structures=None, resume=None):
     """Run local phase training (IC version)."""
 
     # Reset convergence flags for new phase
@@ -210,14 +211,20 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
         if attempt_step > max_attempts:
             logger.error(
                 "Exceeded maximum attempts (%d) with only %d/%d optimizer steps",
-                max_attempts, opt_step, config.n_steps,
+                max_attempts,
+                opt_step,
+                config.n_steps,
             )
-            debug_path = Path(trainer.ckpt_dir) / trainer.experiment_prefix / config.name / (
-                f"debug_max_attempts_opt{opt_step:06d}_att{attempt_step:06d}.pt"
+            debug_path = (
+                Path(trainer.ckpt_dir)
+                / trainer.experiment_prefix
+                / config.name
+                / (f"debug_max_attempts_opt{opt_step:06d}_att{attempt_step:06d}.pt")
             )
             debug_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"attempt_step": attempt_step, "opt_step": opt_step,
-                         **_debug_state(trainer.model.local)}, debug_path)
+            torch.save(
+                {"attempt_step": attempt_step, "opt_step": opt_step, **_debug_state(trainer.model.local)}, debug_path
+            )
             break
 
         trainer.phase_step = opt_step
@@ -239,7 +246,9 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
 
         try:
             loss = dsm_ic_loss(
-                trainer.model, R, seq,
+                trainer.model,
+                R,
+                seq,
                 sigma=sigma_rad,
                 sigma_min=sigma_min_rad,
                 sigma_max=sigma_max_rad,
@@ -248,12 +257,22 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
 
             if not torch.isfinite(loss):
                 logger.error("Non-finite loss at attempt %d: %s", attempt_step, loss.item())
-                debug_path = Path(trainer.ckpt_dir) / trainer.experiment_prefix / config.name / (
-                    f"debug_nonfinite_loss_opt{opt_step:06d}_att{attempt_step:06d}.pt"
+                debug_path = (
+                    Path(trainer.ckpt_dir)
+                    / trainer.experiment_prefix
+                    / config.name
+                    / (f"debug_nonfinite_loss_opt{opt_step:06d}_att{attempt_step:06d}.pt")
                 )
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
-                torch.save({"R": R.detach().cpu(), "seq": seq.detach().cpu(),
-                             "loss": float(loss.item()), **_debug_state(trainer.model.local)}, debug_path)
+                torch.save(
+                    {
+                        "R": R.detach().cpu(),
+                        "seq": seq.detach().cpu(),
+                        "loss": float(loss.item()),
+                        **_debug_state(trainer.model.local),
+                    },
+                    debug_path,
+                )
                 skip_reason = "non-finite loss"
                 trainer._last_skip_reason = skip_reason
                 continue
@@ -278,10 +297,12 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
                     offending_param = name
                     logger.error("Non-finite gradient in parameter %s shape %s", name, tuple(p.shape))
                     continue
-                grad_info[name].update({
-                    "norm": float(g.norm().item()),
-                    "abs_max": float(g.abs().max().item()),
-                })
+                grad_info[name].update(
+                    {
+                        "norm": float(g.norm().item()),
+                        "abs_max": float(g.abs().max().item()),
+                    }
+                )
 
             if grad_ok:
                 trainer.optimizer.step()
@@ -296,16 +317,21 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
             else:
                 skip_reason = f"non-finite gradient in {offending_param}"
                 trainer._last_skip_reason = skip_reason
-                debug_path = Path(trainer.ckpt_dir) / trainer.experiment_prefix / config.name / (
-                    f"debug_nonfinite_grad_opt{opt_step:06d}_att{attempt_step:06d}.pt"
+                debug_path = (
+                    Path(trainer.ckpt_dir)
+                    / trainer.experiment_prefix
+                    / config.name
+                    / (f"debug_nonfinite_grad_opt{opt_step:06d}_att{attempt_step:06d}.pt")
                 )
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
-                torch.save({"grad_info": grad_info, "opt_step": opt_step,
-                             **_debug_state(trainer.model.local)}, debug_path)
+                torch.save(
+                    {"grad_info": grad_info, "opt_step": opt_step, **_debug_state(trainer.model.local)}, debug_path
+                )
 
         except Exception as e:
             logger.error("Error at attempt %d: %s", attempt_step, e)
             import traceback
+
             traceback.print_exc()
             skip_reason = f"exception: {type(e).__name__}"
             trainer._last_skip_reason = skip_reason
@@ -325,16 +351,26 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
                 else:
                     energies = _last_energies or {}
 
-            display_loss = trainer.current_loss if step_successful else (
-                last_successful_loss if last_successful_loss is not None
-                else getattr(trainer, "current_loss", float("nan"))
+            display_loss = (
+                trainer.current_loss
+                if step_successful
+                else (
+                    last_successful_loss
+                    if last_successful_loss is not None
+                    else getattr(trainer, "current_loss", float("nan"))
+                )
             )
 
             # Summary line (matches full_phase style)
             logger.info(
                 "[%s] step %6d/%d (global=%d) | loss=%.4f | lr=%.2e  dsm=%.4f",
-                config.name, opt_step, config.n_steps, trainer.global_step,
-                display_loss, current_lr, display_loss,
+                config.name,
+                opt_step,
+                config.n_steps,
+                trainer.global_step,
+                display_loss,
+                current_lr,
+                display_loss,
             )
 
         # ── Detailed diagnostic block every 200 steps ────────────────────
@@ -345,8 +381,13 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
                 _last_energies = energies
 
             logger.info("══════════════════════════════════════════════════════════════════")
-            logger.info("           STEP %d/%d | loss=%.4f | lr=%.2e",
-                        opt_step, config.n_steps, trainer.current_loss, current_lr)
+            logger.info(
+                "           STEP %d/%d | loss=%.4f | lr=%.2e",
+                opt_step,
+                config.n_steps,
+                trainer.current_loss,
+                current_lr,
+            )
             logger.info("──────────────────────────────────────────────────────────────────")
             logger.info("  Lambdas:  %s", "  ".join(f"{k}={v:.4f}" for k, v in weights.items()))
             logger.info("──────────────────────────────────────────────────────────────────")
@@ -378,7 +419,9 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
                 all_w = torch.cat([p.detach().flatten() for p in mlp.parameters()])
                 logger.info(
                     "  θφ 4-mer MLP weights: mean=%.4f  std=%.4f  |max|=%.4f",
-                    all_w.mean().item(), all_w.std().item(), all_w.abs().max().item(),
+                    all_w.mean().item(),
+                    all_w.std().item(),
+                    all_w.abs().max().item(),
                 )
             # Old architecture
             for mlp_name, mlp_attr in [("θθ MLP", "f_theta_theta"), ("φφ MLP", "f_phi_phi")]:
@@ -387,7 +430,10 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
                     all_w = torch.cat([p.detach().flatten() for p in mlp.parameters()])
                     logger.info(
                         "  %s weights: mean=%.4f  std=%.4f  |max|=%.4f",
-                        mlp_name, all_w.mean().item(), all_w.std().item(), all_w.abs().max().item(),
+                        mlp_name,
+                        all_w.mean().item(),
+                        all_w.std().item(),
+                        all_w.abs().max().item(),
                     )
 
             logger.info("══════════════════════════════════════════════════════════════════")
@@ -396,9 +442,14 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
         if step_successful and local_validator is not None and validate_every > 0 and (opt_step % validate_every == 0):
             try:
                 val_metrics = local_validator.validate(
-                    val_loader, n_batches=3, step=opt_step,
-                    noise_scale=0.03, proj_steps=20, proj_lr=5e-3,
-                    n_corruptions_per_batch=5, warn_bond_rmsd_diff=0.03,
+                    val_loader,
+                    n_batches=3,
+                    step=opt_step,
+                    noise_scale=0.03,
+                    proj_steps=20,
+                    proj_lr=5e-3,
+                    n_corruptions_per_batch=5,
+                    warn_bond_rmsd_diff=0.03,
                 )
                 local_validator.log_validation(val_metrics)
 
@@ -418,7 +469,8 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
             if trainer._check_convergence():
                 logger.info("Training converged at optimizer step %d", opt_step)
                 trainer.save_checkpoint(
-                    config.name, opt_step,
+                    config.name,
+                    opt_step,
                     last_successful_loss or getattr(trainer, "current_loss", float("nan")),
                     is_best=True,
                 )
@@ -428,7 +480,8 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
         save_every = int(getattr(config, "save_every", 0) or 0)
         if step_successful and save_every > 0 and (opt_step % save_every == 0):
             trainer.save_checkpoint(
-                config.name, opt_step,
+                config.name,
+                opt_step,
                 last_successful_loss or getattr(trainer, "current_loss", float("nan")),
             )
 
@@ -440,13 +493,16 @@ def run_local_phase(trainer, config, train_loader, val_loader=None,
 
     # ── Final ────────────────────────────────────────────────────────────
     if not trainer.converged and opt_step > start_opt_step:
-        final_loss = last_successful_loss if last_successful_loss is not None else getattr(trainer, "current_loss", float("nan"))
+        final_loss = (
+            last_successful_loss if last_successful_loss is not None else getattr(trainer, "current_loss", float("nan"))
+        )
         if final_loss == 0.0 and loss is not None and hasattr(loss, "item") and torch.isfinite(loss):
             final_loss = float(loss.item())
         trainer.save_checkpoint(config.name, opt_step, final_loss)
 
-    logger.info("Phase %s complete: %d/%d optimizer steps, %d attempts",
-                config.name, opt_step, config.n_steps, attempt_step)
+    logger.info(
+        "Phase %s complete: %d/%d optimizer steps, %d attempts", config.name, opt_step, config.n_steps, attempt_step
+    )
 
     # Final lambda snapshot
     final_w = _read_local_weights(trainer.model.local)

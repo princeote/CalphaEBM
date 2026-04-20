@@ -11,6 +11,7 @@ Outputs are batched if input is batched.
 """
 import numpy as np
 import torch
+
 from calphaebm.geometry.dihedral import dihedral
 from calphaebm.utils.math import safe_norm
 
@@ -72,14 +73,14 @@ def bond_angles(R: torch.Tensor) -> torch.Tensor:
 
     # Vectors from central atom to neighbors
     u = Rb[:, :-2, :] - Rb[:, 1:-1, :]  # r_{i-1} - r_i
-    v = Rb[:, 2:, :]  - Rb[:, 1:-1, :]  # r_{i+1} - r_i
+    v = Rb[:, 2:, :] - Rb[:, 1:-1, :]  # r_{i+1} - r_i
 
     # dot product: cos(θ) * |u| * |v|
     dot = torch.sum(u * v, dim=-1)
 
     # cross product magnitude: sin(θ) * |u| * |v|  (always >= 0)
-    cross = torch.linalg.cross(u, v, dim=-1)          # (B, L-2, 3)
-    cross_norm = safe_norm(cross, dim=-1)              # FIX: was torch.norm
+    cross = torch.linalg.cross(u, v, dim=-1)  # (B, L-2, 3)
+    cross_norm = safe_norm(cross, dim=-1)  # FIX: was torch.norm
 
     # atan2(sin, cos) — well-behaved second derivatives everywhere
     theta = torch.atan2(cross_norm, dot)
@@ -149,10 +150,11 @@ def check_geometry(R, max_jump: float = 4.5) -> dict:
 
     # Check for steric clashes (very rough)
     from calphaebm.utils.neighbors import pairwise_distances
+
     D = pairwise_distances(R.unsqueeze(0))[0]
     # Exclude bonded pairs
     for i in range(L):
-        D[i, max(0, i - 2):min(L, i + 3)] = float("inf")
+        D[i, max(0, i - 2) : min(L, i + 3)] = float("inf")
     min_nonbonded = D.min().item()
 
     return {

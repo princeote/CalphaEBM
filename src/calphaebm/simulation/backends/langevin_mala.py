@@ -57,14 +57,10 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.simulation.fixman import fixman_potential
-from calphaebm.utils.math import wrap_to_pi
 from calphaebm.utils.logging import get_logger
+from calphaebm.utils.math import wrap_to_pi
 
 logger = get_logger()
 
@@ -72,12 +68,13 @@ logger = get_logger()
 @dataclass
 class MALAStepInfo:
     """Diagnostic info returned at each MALA step."""
+
     step: int
     energy: float
     proposed_energy: float
     accepted: bool
     acceptance_prob: float
-    acceptance_rate: float      # running average
+    acceptance_rate: float  # running average
     theta_grad_norm: float
     phi_grad_norm: float
     theta_std: float
@@ -120,16 +117,16 @@ class MALASimulator:
         lengths: Optional[torch.Tensor] = None,
         device: Optional[torch.device] = None,
     ):
-        self.model     = model
+        self.model = model
         self.step_size = float(step_size)
-        self.beta      = float(beta)
+        self.beta = float(beta)
         self.force_cap = float(force_cap)
-        self.bond      = float(bond)
-        self.step_num  = 0
+        self.bond = float(bond)
+        self.step_num = 0
 
         # Acceptance tracking
         self._n_accepted = 0
-        self._n_total    = 0
+        self._n_total = 0
 
         if device is None:
             device = next(model.parameters()).device
@@ -158,19 +155,17 @@ class MALASimulator:
         # Initial internal coordinates
         theta_init, phi_init = coords_to_internal(R_init)
         self.theta = theta_init.clone().detach()
-        self.phi   = phi_init.clone().detach()
+        self.phi = phi_init.clone().detach()
 
         # Cache current energy and gradients (avoid recomputation)
-        self._current_E      = None
+        self._current_E = None
         self._current_grad_t = None
         self._current_grad_p = None
 
         L = R_init.shape[1]
         logger.debug("MALASimulator initialized:")
-        logger.debug("  L=%d  theta shape=%s  phi shape=%s",
-                     L, tuple(self.theta.shape), tuple(self.phi.shape))
-        logger.debug("  step_size=%.2e  beta=%.1f  force_cap=%.1f  bond=%.2fÅ",
-                     step_size, beta, force_cap, bond)
+        logger.debug("  L=%d  theta shape=%s  phi shape=%s", L, tuple(self.theta.shape), tuple(self.phi.shape))
+        logger.debug("  step_size=%.2e  beta=%.1f  force_cap=%.1f  bond=%.2fÅ", step_size, beta, force_cap, bond)
 
     @property
     def L(self) -> int:
@@ -207,7 +202,7 @@ class MALASimulator:
             grad_phi:   (1, L-3)
         """
         theta_g = theta.detach().requires_grad_(True)
-        phi_g   = phi.detach().requires_grad_(True)
+        phi_g = phi.detach().requires_grad_(True)
 
         R = nerf_reconstruct(theta_g, phi_g, self.anchor, bond=self.bond)
         E_model = self.model(R, self.seq, lengths=self.lengths).sum()
@@ -248,30 +243,29 @@ class MALASimulator:
             E:    (1,) energy at current state (after accept/reject)
             info: MALAStepInfo with acceptance diagnostics
         """
-        eta  = self.step_size
+        eta = self.step_size
         beta = self.beta
         noise_scale = (2.0 * eta / beta) ** 0.5
 
         # ── Current state energy + gradients (cached from previous step) ──
         if self._current_E is None:
-            self._current_E, self._current_grad_t, self._current_grad_p = \
-                self._evaluate(self.theta, self.phi)
+            self._current_E, self._current_grad_t, self._current_grad_p = self._evaluate(self.theta, self.phi)
 
         E_current = self._current_E
-        grad_t    = self._current_grad_t
-        grad_p    = self._current_grad_p
+        grad_t = self._current_grad_t
+        grad_p = self._current_grad_p
 
         # ── Propose new state ─────────────────────────────────────────────
         with torch.no_grad():
             noise_t = torch.randn_like(self.theta) * noise_scale
-            noise_p = torch.randn_like(self.phi)   * noise_scale
+            noise_p = torch.randn_like(self.phi) * noise_scale
 
             theta_prop = self.theta - eta * grad_t + noise_t
-            phi_prop   = self.phi   - eta * grad_p + noise_p
+            phi_prop = self.phi - eta * grad_p + noise_p
 
             # Clamp and wrap
             theta_prop = theta_prop.clamp(0.01, torch.pi - 0.01)
-            phi_prop   = wrap_to_pi(phi_prop)
+            phi_prop = wrap_to_pi(phi_prop)
 
         # ── Evaluate proposed state ───────────────────────────────────────
         E_prop, grad_t_prop, grad_p_prop = self._evaluate(theta_prop, phi_prop)
@@ -283,37 +277,29 @@ class MALASimulator:
 
             # Proposal density correction (log q(old|new) - log q(new|old))
             # For θ:
-            log_q_reverse_t = self._log_proposal_density(
-                self.theta, theta_prop, grad_t_prop)
-            log_q_forward_t = self._log_proposal_density(
-                theta_prop, self.theta, grad_t)
+            log_q_reverse_t = self._log_proposal_density(self.theta, theta_prop, grad_t_prop)
+            log_q_forward_t = self._log_proposal_density(theta_prop, self.theta, grad_t)
 
             # For φ:
-            log_q_reverse_p = self._log_proposal_density(
-                self.phi, phi_prop, grad_p_prop)
-            log_q_forward_p = self._log_proposal_density(
-                phi_prop, self.phi, grad_p)
+            log_q_reverse_p = self._log_proposal_density(self.phi, phi_prop, grad_p_prop)
+            log_q_forward_p = self._log_proposal_density(phi_prop, self.phi, grad_p)
 
-            log_q_correction = float(
-                (log_q_reverse_t - log_q_forward_t +
-                 log_q_reverse_p - log_q_forward_p).item()
-            )
+            log_q_correction = float((log_q_reverse_t - log_q_forward_t + log_q_reverse_p - log_q_forward_p).item())
 
             # Log acceptance ratio
             log_alpha = -beta * delta_E + log_q_correction
-            acceptance_prob = min(1.0, float(torch.exp(
-                torch.tensor(log_alpha).clamp(max=20.0)).item()))
+            acceptance_prob = min(1.0, float(torch.exp(torch.tensor(log_alpha).clamp(max=20.0)).item()))
 
             # Accept or reject
-            accepted = (torch.rand(1).item() < acceptance_prob)
+            accepted = torch.rand(1).item() < acceptance_prob
 
         # ── Update state ──────────────────────────────────────────────────
         self._n_total += 1
         if accepted:
             self._n_accepted += 1
             self.theta = theta_prop
-            self.phi   = phi_prop
-            self._current_E      = E_prop
+            self.phi = phi_prop
+            self._current_E = E_prop
             self._current_grad_t = grad_t_prop
             self._current_grad_p = grad_p_prop
             E_out = E_prop
@@ -329,9 +315,9 @@ class MALASimulator:
             diffs = R[:, 1:, :] - R[:, :-1, :]
             bond_lengths = torch.sqrt((diffs * diffs).sum(dim=-1))
             bl_mean = bond_lengths.mean().item()
-            bl_std  = bond_lengths.std().item()
-            bl_min  = bond_lengths.min().item()
-            bl_max  = bond_lengths.max().item()
+            bl_std = bond_lengths.std().item()
+            bl_min = bond_lengths.min().item()
+            bl_max = bond_lengths.max().item()
 
         self.step_num += 1
 
@@ -366,7 +352,7 @@ class MALASimulator:
             frames:   List of (1, L, 3) coordinate tensors
             energies: List of scalar energy values
         """
-        frames   = []
+        frames = []
         energies = []
 
         for i in range(n_steps):
@@ -378,16 +364,18 @@ class MALASimulator:
 
             if (i + 1) % log_every == 0:
                 logger.info(
-                    "step %6d/%d | E=%+.3f | accept=%.1f%% | "
-                    "bond=%.4f±%.4fÅ | |∇θ|=%.3f |∇φ|=%.3f",
-                    i + 1, n_steps, info.energy,
+                    "step %6d/%d | E=%+.3f | accept=%.1f%% | " "bond=%.4f±%.4fÅ | |∇θ|=%.3f |∇φ|=%.3f",
+                    i + 1,
+                    n_steps,
+                    info.energy,
                     info.acceptance_rate * 100,
-                    info.bond_length_mean, info.bond_length_std,
-                    info.theta_grad_norm, info.phi_grad_norm,
+                    info.bond_length_mean,
+                    info.bond_length_std,
+                    info.theta_grad_norm,
+                    info.phi_grad_norm,
                 )
 
-        logger.info("MALA complete: %d steps, acceptance rate %.1f%%",
-                     n_steps, self.acceptance_rate * 100)
+        logger.info("MALA complete: %d steps, acceptance rate %.1f%%", n_steps, self.acceptance_rate * 100)
 
         return frames, energies
 
@@ -409,11 +397,11 @@ class MALASimulator:
         self.anchor = extract_anchor(R_init)
         theta_init, phi_init = coords_to_internal(R_init)
         self.theta = theta_init.clone().detach()
-        self.phi   = phi_init.clone().detach()
-        self.step_num    = 0
+        self.phi = phi_init.clone().detach()
+        self.step_num = 0
         self._n_accepted = 0
-        self._n_total    = 0
-        self._current_E      = None
+        self._n_total = 0
+        self._current_E = None
         self._current_grad_t = None
         self._current_grad_p = None
         logger.info("MALASimulator reset.")

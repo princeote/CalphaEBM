@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import numpy as np
 
-from .plots import plot_enrichment_matrices
 from .config import CONTACT_BINS
+from .plots import plot_enrichment_matrices
 
 
 def visualize_enrichment_bundle(data_dir: Path, bin_name: str, out_dir: Path) -> None:
     """
     Load enrichment data for a specific bin and generate plots.
-    
+
     Args:
         data_dir: Directory containing the analysis output files
         bin_name: Name of the contact bin (tight, medium, loose)
@@ -40,7 +41,7 @@ def visualize_enrichment_bundle(data_dir: Path, bin_name: str, out_dir: Path) ->
     log_oe_dict = {bin_name: log_oe}
     z_dict = {bin_name: z if z is not None else np.zeros_like(oe)}
     q_dict = {bin_name: q if q is not None else np.ones_like(oe)}
-    
+
     # Generate plots
     plot_enrichment_matrices(
         oe=oe_dict,

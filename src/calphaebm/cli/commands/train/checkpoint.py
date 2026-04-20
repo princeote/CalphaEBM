@@ -1,6 +1,7 @@
 """Checkpoint loading and weight application."""
 
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional, Tuple
+
 import torch
 
 from calphaebm.utils.logging import get_logger
@@ -34,13 +35,13 @@ def load_checkpoint(
             logger.debug("Loaded checkpoint as direct state dict")
 
         trainer_state = {
-            "global_step":                      checkpoint.get("global_step", 0),
-            "phase_step":                       checkpoint.get("phase_step", 0),
-            "best_composite_score":             checkpoint.get("best_composite_score"),
+            "global_step": checkpoint.get("global_step", 0),
+            "phase_step": checkpoint.get("phase_step", 0),
+            "best_composite_score": checkpoint.get("best_composite_score"),
             "best_composite_score_initialized": checkpoint.get("best_composite_score_initialized", False),
-            "best_val_step":                    checkpoint.get("best_val_step", 0),
-            "early_stopping_counter":           checkpoint.get("early_stopping_counter", 0),
-            "validation_history":               checkpoint.get("validation_history", []),
+            "best_val_step": checkpoint.get("best_val_step", 0),
+            "early_stopping_counter": checkpoint.get("early_stopping_counter", 0),
+            "validation_history": checkpoint.get("validation_history", []),
         }
     else:
         checkpoint_state = checkpoint
@@ -79,7 +80,7 @@ def load_weights_into_model(
     # they will be silently skipped by strict=False below.
     local_param_map = {
         "theta_theta_weight": "local.theta_theta_weight",
-        "delta_phi_weight":   "local.delta_phi_weight",
+        "delta_phi_weight": "local.delta_phi_weight",
     }
 
     for key, value in state.items():
@@ -89,8 +90,7 @@ def load_weights_into_model(
                 mapped_state[key] = value
                 logger.debug("Direct match: %s", key)
             else:
-                logger.warning("Shape mismatch for %s: ckpt %s vs model %s",
-                               key, value.shape, current_state[key].shape)
+                logger.warning("Shape mismatch for %s: ckpt %s vs model %s", key, value.shape, current_state[key].shape)
             continue
 
         # Legacy local parameter mapping
@@ -122,13 +122,17 @@ def load_weights_into_model(
     missing, unexpected = model.load_state_dict(mapped_state, strict=False)
 
     stats = {
-        "loaded":     len(mapped_state),
-        "missing":    list(missing),
+        "loaded": len(mapped_state),
+        "missing": list(missing),
         "unexpected": list(unexpected),
     }
 
-    logger.debug("Model weight loading complete: loaded=%d  missing=%d  unexpected=%d",
-                stats["loaded"], len(stats["missing"]), len(stats["unexpected"]))
+    logger.debug(
+        "Model weight loading complete: loaded=%d  missing=%d  unexpected=%d",
+        stats["loaded"],
+        len(stats["missing"]),
+        len(stats["unexpected"]),
+    )
 
     # Store stats on model for consolidated logging
     model._load_stats = stats

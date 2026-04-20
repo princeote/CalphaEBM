@@ -30,8 +30,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from calphaebm.geometry.pairs import topk_nonbonded_pairs
-from calphaebm.utils.smooth import smooth_switch
 from calphaebm.utils.logging import get_logger
+from calphaebm.utils.smooth import smooth_switch
 
 logger = get_logger()
 
@@ -64,9 +64,7 @@ class RepulsionEnergy(nn.Module):
         super().__init__()
 
         # Trainable internal scale (the only trainable handle since the table is fixed)
-        self._lambda_rep_raw = nn.Parameter(
-            torch.tensor(float(init_lambda_rep), dtype=torch.float32)
-        )
+        self._lambda_rep_raw = nn.Parameter(torch.tensor(float(init_lambda_rep), dtype=torch.float32))
 
         self.K = int(K)
         self.exclude = int(exclude)
@@ -93,7 +91,7 @@ class RepulsionEnergy(nn.Module):
         # Try multiple possible filenames for centers
         center_candidates = [
             data_path / "repulsive_wall_centers.npy",  # preferred naming
-            data_path / "repulsive_wall_r_A.npy",      # alternative naming (your logs show this)
+            data_path / "repulsive_wall_r_A.npy",  # alternative naming (your logs show this)
         ]
 
         centers_path: Optional[Path] = None
@@ -105,8 +103,7 @@ class RepulsionEnergy(nn.Module):
 
         if centers_path is None:
             raise FileNotFoundError(
-                f"No repulsion centers file found in {data_dir}. "
-                f"Tried: {[c.name for c in center_candidates]}"
+                f"No repulsion centers file found in {data_dir}. " f"Tried: {[c.name for c in center_candidates]}"
             )
 
         energy_path = data_path / "repulsive_wall_energy.npy"
@@ -114,14 +111,12 @@ class RepulsionEnergy(nn.Module):
             raise FileNotFoundError(f"Repulsion energy file not found: {energy_path}")
 
         centers = np.load(centers_path).astype(np.float32).reshape(-1)  # grid points
-        energy = np.load(energy_path).astype(np.float32).reshape(-1)    # energy values
+        energy = np.load(energy_path).astype(np.float32).reshape(-1)  # energy values
 
         if centers.ndim != 1 or energy.ndim != 1:
             raise ValueError("repulsive wall centers/energy must be 1D arrays after reshape(-1)")
         if centers.shape[0] != energy.shape[0]:
-            raise ValueError(
-                f"centers and energy must have same length, got {centers.shape[0]} vs {energy.shape[0]}"
-            )
+            raise ValueError(f"centers and energy must have same length, got {centers.shape[0]} vs {energy.shape[0]}")
         if centers.shape[0] < 2:
             raise ValueError(f"centers must have >=2 points, got {centers.shape[0]}")
         if not np.all(np.isfinite(centers)) or not np.all(np.isfinite(energy)):
@@ -152,8 +147,9 @@ class RepulsionEnergy(nn.Module):
             "r_range": (r_min, r_max),
             "init_lambda": init_lambda_rep,
         }
-        logger.debug("RepulsionEnergy: %d grid points [%.1f, %.1f]Å, λ_init=%.4f",
-                     n_points, r_min, r_max, init_lambda_rep)
+        logger.debug(
+            "RepulsionEnergy: %d grid points [%.1f, %.1f]Å, λ_init=%.4f", n_points, r_min, r_max, init_lambda_rep
+        )
 
     @property
     def lambda_rep(self) -> torch.Tensor:
@@ -217,8 +213,7 @@ class RepulsionEnergy(nn.Module):
 
         return energy_flat.reshape(orig_shape)
 
-    def forward(self, R: torch.Tensor, seq: torch.Tensor,
-                lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         """Compute repulsion energy (unscaled - outer gate will multiply).
 
         Args:
@@ -262,7 +257,7 @@ class RepulsionEnergy(nn.Module):
         E_pair = self._lookup_energy_differentiable(r)  # (B, L, K)
 
         # Apply smooth switching function (typically ~1 at short range, to 0 near cutoff)
-        sw = smooth_switch(r, self.r_on, self.r_cut)    # (B, L, K)
+        sw = smooth_switch(r, self.r_on, self.r_cut)  # (B, L, K)
 
         # Sum over all pairs and scale by internal trainable lambda_rep
         E = self.lambda_rep * (E_pair * sw).sum(dim=(1, 2))  # (B,)

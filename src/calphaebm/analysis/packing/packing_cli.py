@@ -5,14 +5,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .packing_core import run_packing_analysis
 from .packing_config import (
+    DEFAULT_N_STRUCTURES,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEGMENTS_PT,
-    DEFAULT_N_STRUCTURES,
-    DEFAULT_SIGMA_MIN,
     DEFAULT_SIGMA_MAX,
+    DEFAULT_SIGMA_MIN,
 )
+from .packing_core import run_packing_analysis
 
 
 def add_subparser(subparsers) -> argparse.ArgumentParser:
@@ -68,8 +68,7 @@ def add_subparser(subparsers) -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_SIGMA_MIN,
         help=(
-            f"Lower DSM sigma bound in Å (default: {DEFAULT_SIGMA_MIN}). "
-            "Must match --sigma-min used in training."
+            f"Lower DSM sigma bound in Å (default: {DEFAULT_SIGMA_MIN}). " "Must match --sigma-min used in training."
         ),
     )
     parser.add_argument(
@@ -77,8 +76,7 @@ def add_subparser(subparsers) -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_SIGMA_MAX,
         help=(
-            f"Upper DSM sigma bound in Å (default: {DEFAULT_SIGMA_MAX}). "
-            "Must match --sigma-max used in training."
+            f"Upper DSM sigma bound in Å (default: {DEFAULT_SIGMA_MAX}). " "Must match --sigma-max used in training."
         ),
     )
     parser.add_argument(

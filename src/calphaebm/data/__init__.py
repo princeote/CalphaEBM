@@ -5,8 +5,8 @@
 from calphaebm.data.aa_map import AA1_TO_IDX, AA3_TO_AA1, aa3_to_idx
 from calphaebm.data.build_pdb70_like import build_pdb70_like
 from calphaebm.data.id_utils import normalize_to_entry_ids, split_entity_id
-from calphaebm.data.pdb_dataset import PDBSegmentDataset
 from calphaebm.data.pdb_chain_dataset import PDBChainDataset
+from calphaebm.data.pdb_dataset import PDBSegmentDataset
 from calphaebm.data.pdb_parse import (
     download_cif,
     get_residue_sequence,

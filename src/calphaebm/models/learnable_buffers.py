@@ -50,7 +50,7 @@ def reg(
     if learnable:
         setattr(module, name, nn.Parameter(t.clone()))
         # Store initial value for drift tracking (not saved in checkpoint)
-        module.register_buffer(f'_init_{name}', t.clone(), persistent=False)
+        module.register_buffer(f"_init_{name}", t.clone(), persistent=False)
     else:
         module.register_buffer(name, t)
 
@@ -72,7 +72,7 @@ def buffer_drift_report(model: nn.Module, top_n: int = 20) -> list[str]:
 
     for mod_name, mod in model.named_modules():
         for attr_name in list(mod._parameters.keys()):
-            init_name = f'_init_{attr_name}'
+            init_name = f"_init_{attr_name}"
             if init_name not in mod._buffers:
                 continue
 
@@ -83,7 +83,7 @@ def buffer_drift_report(model: nn.Module, top_n: int = 20) -> list[str]:
                 continue
 
             delta = param.data - init_val
-            path = f'{mod_name}.{attr_name}' if mod_name else attr_name
+            path = f"{mod_name}.{attr_name}" if mod_name else attr_name
 
             init_mean = init_val.mean().item()
             curr_mean = param.data.mean().item()
@@ -93,33 +93,35 @@ def buffer_drift_report(model: nn.Module, top_n: int = 20) -> list[str]:
             init_mag = init_val.abs().mean().item()
             pct = (max_abs_drift / max(init_mag, 1e-8)) * 100
 
-            drifts.append({
-                'path': path,
-                'shape': list(param.shape),
-                'init_mean': init_mean,
-                'curr_mean': curr_mean,
-                'delta_mean': delta_mean,
-                'max_drift': max_abs_drift,
-                'rms_drift': rms_drift,
-                'pct': pct,
-                'numel': param.numel(),
-            })
+            drifts.append(
+                {
+                    "path": path,
+                    "shape": list(param.shape),
+                    "init_mean": init_mean,
+                    "curr_mean": curr_mean,
+                    "delta_mean": delta_mean,
+                    "max_drift": max_abs_drift,
+                    "rms_drift": rms_drift,
+                    "pct": pct,
+                    "numel": param.numel(),
+                }
+            )
 
     # Sort by max drift descending
-    drifts.sort(key=lambda d: d['max_drift'], reverse=True)
+    drifts.sort(key=lambda d: d["max_drift"], reverse=True)
 
     lines = []
     if not drifts:
-        lines.append('  Learnable buffers: none active')
+        lines.append("  Learnable buffers: none active")
         return lines
 
-    total_params = sum(d['numel'] for d in drifts)
-    lines.append(f'  Learnable buffers: {len(drifts)} groups, {total_params} params')
+    total_params = sum(d["numel"] for d in drifts)
+    lines.append(f"  Learnable buffers: {len(drifts)} groups, {total_params} params")
     lines.append(f'  {"path":<45s} {"shape":<14s} {"init->curr":<24s} {"max|d|":>8s} {"rms":>8s} {"d%":>7s}')
     lines.append(f'  {"."*45} {"."*14} {"."*24} {"."*8} {"."*8} {"."*7}')
 
     for d in drifts[:top_n]:
-        shape_str = str(d['shape'])
+        shape_str = str(d["shape"])
         arrow = f'{d["init_mean"]:+.4f}->{d["curr_mean"]:+.4f}'
         lines.append(
             f'  {d["path"]:<45s} {shape_str:<14s} {arrow:<24s} '
@@ -127,6 +129,6 @@ def buffer_drift_report(model: nn.Module, top_n: int = 20) -> list[str]:
         )
 
     if len(drifts) > top_n:
-        lines.append(f'  ... and {len(drifts) - top_n} more (sorted by max|d|)')
+        lines.append(f"  ... and {len(drifts) - top_n} more (sorted by max|d|)")
 
     return lines

@@ -31,11 +31,14 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 
     # Required
     parser.add_argument(
-        "--checkpoint", required=True,
+        "--checkpoint",
+        required=True,
         help="Model checkpoint path",
     )
     parser.add_argument(
-        "--pdb", nargs="+", required=True,
+        "--pdb",
+        nargs="+",
+        required=True,
         help=(
             "PDB IDs to analyze. Use high-resolution X-ray structures "
             "(resolution < 1.5Å) for reliable B-factors. "
@@ -45,36 +48,47 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 
     # β sweep
     parser.add_argument(
-        "--betas", nargs="+", type=float,
+        "--betas",
+        nargs="+",
+        type=float,
         default=[10, 20, 50, 100, 200],
         help="Inverse temperature values to test (default: 10 20 50 100 200)",
     )
 
     # Langevin params
     parser.add_argument(
-        "--langevin-steps", type=int, default=2000,
+        "--langevin-steps",
+        type=int,
+        default=2000,
         help="Langevin steps per structure per β (default: 2000)",
     )
     parser.add_argument(
-        "--step-size", type=float, default=1e-4,
+        "--step-size",
+        type=float,
+        default=1e-4,
         help="Langevin step size η (default: 1e-4)",
     )
     parser.add_argument(
-        "--save-every", type=int, default=10,
+        "--save-every",
+        type=int,
+        default=10,
         help="Save trajectory snapshot every N steps (default: 10)",
     )
 
     # I/O
     parser.add_argument(
-        "--cache-dir", default="./pdb_cache",
+        "--cache-dir",
+        default="./pdb_cache",
         help="PDB file cache directory",
     )
     parser.add_argument(
-        "--output", default="analysis/bfactor/bfactor_analysis.json",
+        "--output",
+        default="analysis/bfactor/bfactor_analysis.json",
         help="Output JSON path (default: analysis/bfactor/bfactor_analysis.json)",
     )
     parser.add_argument(
-        "--device", default="cpu",
+        "--device",
+        default="cpu",
         help="Device: cpu or cuda (default: cpu)",
     )
 
@@ -94,8 +108,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 def _run(args: argparse.Namespace) -> None:
     """Entry point for: calphaebm analyze bfactor"""
 
-    from calphaebm.models.total_energy import TotalEnergy
     from calphaebm.analysis.bfactor.core import run_bfactor_analysis
+    from calphaebm.models.total_energy import TotalEnergy
 
     # Load model
     logger.info("Loading checkpoint: %s", args.checkpoint)

@@ -3,46 +3,40 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from tqdm import tqdm
 
-from calphaebm.utils.logging import get_logger
+from calphaebm.data.aa_map import aa3_to_idx, idx_to_aa1  # FIXED: changed idx_to_aa3 to idx_to_aa1
 from calphaebm.data.id_utils import normalize_to_entry_ids
 from calphaebm.data.pdb_parse import download_cif, parse_cif_ca_chains, split_chain_on_gaps
-from calphaebm.data.aa_map import aa3_to_idx, idx_to_aa1  # FIXED: changed idx_to_aa3 to idx_to_aa1
+from calphaebm.utils.logging import get_logger
 
 from .config import (
+    CONTACT_BINS,
     DEFAULT_CACHE_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_PDB_LIST,
-    MIN_SEQ_SEP,
-    MIN_SEG_LEN,
+    EMPIRICAL_COUNT_THRESHOLD,
+    EMPIRICAL_P_FOR_LOW_COUNTS,
+    ENRICH_SHUFFLES,
+    FDR_Q,
     MAX_DIST_A,
     MAX_PAIRS_PER_SEGMENT,
+    MIN_SEG_LEN,
+    MIN_SEQ_SEP,
     PAIR_SAMPLE_SEED,
-    RDF_R_MIN_A,
-    RDF_R_MAX_A,
-    RDF_N_BINS,
-    RDF_TAIL_START_A,
-    RDF_TAIL_END_A,
-    CONTACT_BINS,
-    ENRICH_SHUFFLES,
-    EMPIRICAL_P_FOR_LOW_COUNTS,
-    EMPIRICAL_COUNT_THRESHOLD,
-    FDR_Q,
     PLOT_MAX_POINTS,
-)
-
-from .rdf import (
-    compute_rdf_from_counts,
-    extract_repulsive_wall,
-    densify_wall,
-    save_repulsive_wall,
+    RDF_N_BINS,
+    RDF_R_MAX_A,
+    RDF_R_MIN_A,
+    RDF_TAIL_END_A,
+    RDF_TAIL_START_A,
 )
 from .enrichment import compute_contact_enrichment
-from .plots import plot_rdf_analysis, plot_repulsive_wall, plot_enrichment_matrices
+from .plots import plot_enrichment_matrices, plot_rdf_analysis, plot_repulsive_wall
+from .rdf import compute_rdf_from_counts, densify_wall, extract_repulsive_wall, save_repulsive_wall
 
 logger = get_logger()
 
@@ -67,18 +61,18 @@ def _read_ids(path: Path) -> List[str]:
 def _convert_seq_to_indices(seq_data: Union[List, np.ndarray, tuple]) -> np.ndarray:
     """
     Convert sequence data (strings or indices) to integer indices.
-    
+
     Handles:
     - List of 3-letter AA codes (e.g., ["ALA", "GLY", ...])
     - List of 1-letter codes (e.g., ["A", "G", ...])
     - List or array of integer indices (0-19)
     - Mixed types
-    
+
     Returns:
         np.ndarray of shape (L,) with integer indices (0-19)
     """
     seq_idx = []
-    
+
     for item in seq_data:
         # Handle different input types
         if isinstance(item, (np.integer, int, np.int32, np.int64)):
@@ -88,11 +82,11 @@ def _convert_seq_to_indices(seq_data: Union[List, np.ndarray, tuple]) -> np.ndar
                 logger.warning(f"Integer index {idx} out of range [0,19], mapping to 0")
                 idx = 0
             seq_idx.append(idx)
-            
+
         elif isinstance(item, str):
             # String - could be 3-letter or 1-letter code
             item_clean = item.strip().upper()
-            
+
             # Try as 3-letter code first
             idx = aa3_to_idx(item_clean)
             if idx is not None:
@@ -100,17 +94,18 @@ def _convert_seq_to_indices(seq_data: Union[List, np.ndarray, tuple]) -> np.ndar
             else:
                 # Try as 1-letter code
                 from calphaebm.data.aa_map import aa1_to_idx
+
                 idx = aa1_to_idx(item_clean)
                 if idx is not None:
                     seq_idx.append(idx)
                 else:
                     logger.warning(f"Unknown amino acid code '{item_clean}', using 0")
                     seq_idx.append(0)
-        
+
         elif isinstance(item, (bytes, bytearray)):
             # Handle bytes
             try:
-                item_str = item.decode('utf-8').strip().upper()
+                item_str = item.decode("utf-8").strip().upper()
                 idx = aa3_to_idx(item_str)
                 if idx is not None:
                     seq_idx.append(idx)
@@ -122,7 +117,7 @@ def _convert_seq_to_indices(seq_data: Union[List, np.ndarray, tuple]) -> np.ndar
                         seq_idx.append(0)
             except:
                 seq_idx.append(0)
-        
+
         else:
             # Unknown type - try to convert to string
             try:
@@ -139,13 +134,13 @@ def _convert_seq_to_indices(seq_data: Union[List, np.ndarray, tuple]) -> np.ndar
             except:
                 logger.warning(f"Unknown sequence item type {type(item)}, using 0")
                 seq_idx.append(0)
-    
+
     return np.array(seq_idx, dtype=np.int64)
 
 
 def _accumulate_pairs_for_segment(
-    coords: np.ndarray,   # (L,3) float
-    seq_data: Any,        # sequence data in various formats
+    coords: np.ndarray,  # (L,3) float
+    seq_data: Any,  # sequence data in various formats
     rng: np.random.Generator,
     rdf_counts: np.ndarray,
     rdf_edges: np.ndarray,
@@ -161,7 +156,7 @@ def _accumulate_pairs_for_segment(
 
     # Convert sequence to indices robustly
     seq_idx = _convert_seq_to_indices(seq_data)
-    
+
     # Verify length matches
     if len(seq_idx) != L:
         logger.warning(f"Sequence length mismatch: {len(seq_idx)} vs coordinates {L}. Truncating.")
@@ -410,12 +405,12 @@ class RepulsionAnalyzer:
 def run_repulsion_analysis(args) -> int:
     """Run repulsion analysis from CLI arguments."""
     analyzer = RepulsionAnalyzer(cache_dir=args.cache_dir, output_dir=args.output_dir)
-    
+
     # Handle optional arguments with defaults
-    max_pdbs = getattr(args, 'max_pdbs', None)
-    quiet = getattr(args, 'quiet', False)
-    plot_max_points = getattr(args, 'plot_max_points', PLOT_MAX_POINTS)
-    
+    max_pdbs = getattr(args, "max_pdbs", None)
+    quiet = getattr(args, "quiet", False)
+    plot_max_points = getattr(args, "plot_max_points", PLOT_MAX_POINTS)
+
     return analyzer.run(
         pdb_list=args.pdb_list,
         max_pdbs=max_pdbs,

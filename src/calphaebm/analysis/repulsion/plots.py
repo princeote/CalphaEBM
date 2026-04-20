@@ -6,7 +6,7 @@ from typing import Dict
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .config import PLOT_DPI, AA_NAMES
+from .config import AA_NAMES, PLOT_DPI
 
 
 def plot_rdf_analysis(
@@ -72,7 +72,7 @@ def plot_enrichment_matrices(
 ) -> None:
     """
     Plot enrichment matrices for each contact bin.
-    
+
     Args:
         oe: Dictionary of observed/expected matrices per bin
         log_oe: Dictionary of log(observed/expected) matrices per bin
@@ -87,7 +87,7 @@ def plot_enrichment_matrices(
     for name in contact_bins.keys():
         if name not in log_oe:
             continue
-            
+
         # Plot log(OE)
         fig, ax = plt.subplots(figsize=(7, 6))
         im = ax.imshow(log_oe[name], origin="lower", aspect="equal", cmap="RdBu_r")

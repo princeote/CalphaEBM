@@ -50,8 +50,8 @@ def make_helix(
     y = float(radius) * torch.sin(i * twist_rad)
     z = i * float(rise)
 
-    R = torch.stack([x, y, z], dim=-1)          # (L, 3)
-    R = R.unsqueeze(0).expand(batch, -1, -1)    # (B, L, 3)
+    R = torch.stack([x, y, z], dim=-1)  # (L, 3)
+    R = R.unsqueeze(0).expand(batch, -1, -1)  # (B, L, 3)
 
     if noise and noise > 0:
         R = R + float(noise) * torch.randn_like(R)

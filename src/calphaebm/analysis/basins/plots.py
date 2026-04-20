@@ -7,8 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from .config import PLOT_DPI
 

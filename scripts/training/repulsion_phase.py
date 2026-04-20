@@ -25,7 +25,7 @@ from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
-N_SUBTERMS = 9           # θθ, Δφ, φφ, ram, hb_α, hb_β, rep, geom, contact
+N_SUBTERMS = 9  # θθ, Δφ, φφ, ram, hb_α, hb_β, rep, geom, contact
 TARGET_PER_SUBTERM = 1.0 / N_SUBTERMS  # ≈ 0.1111
 
 
@@ -38,7 +38,10 @@ def _inv_softplus(y: float, eps: float = 1e-6) -> float:
 
 
 def _measure_native_repulsion(
-    model, train_loader, device, n_batches: int = 32,
+    model,
+    train_loader,
+    device,
+    n_batches: int = 32,
 ) -> Dict[str, float]:
     """Measure repulsion statistics on native structures, padding-aware."""
     rep_mod = model.repulsion
@@ -74,7 +77,7 @@ def _measure_native_repulsion(
 
             # Distance statistics — padding-aware
             diff = R.unsqueeze(2) - R.unsqueeze(1)  # (B, L, L, 3)
-            dist = torch.sqrt((diff ** 2).sum(-1) + 1e-8)  # (B, L, L)
+            dist = torch.sqrt((diff**2).sum(-1) + 1e-8)  # (B, L, L)
 
             idx = torch.arange(L, device=device)
             sep = (idx.unsqueeze(0) - idx.unsqueeze(1)).abs()
@@ -163,7 +166,10 @@ def run_repulsion_phase(
     rep_mod._lambda_rep_raw.data.fill_(_inv_softplus(1.0))
 
     stats_unit = _measure_native_repulsion(
-        model, train_loader, trainer.device, n_batches=n_measure_batches,
+        model,
+        train_loader,
+        trainer.device,
+        n_batches=n_measure_batches,
     )
 
     raw_mean = stats_unit["raw_mean"]
@@ -199,7 +205,10 @@ def run_repulsion_phase(
     logger.info("  ─────────────────────────────────────────────────────")
 
     stats_final = _measure_native_repulsion(
-        model, train_loader, trainer.device, n_batches=n_measure_batches,
+        model,
+        train_loader,
+        trainer.device,
+        n_batches=n_measure_batches,
     )
 
     expected = raw_mean * new_lambda

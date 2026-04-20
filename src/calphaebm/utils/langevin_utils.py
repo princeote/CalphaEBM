@@ -12,10 +12,11 @@ _LANGEVIN_IMPORT_ERROR = None
 def check_langevin_available():
     """Check if langevin_sample is available."""
     global _HAS_LANGEVIN, _LANGEVIN_SAMPLE, _LANGEVIN_IMPORT_ERROR
-    
+
     if _HAS_LANGEVIN is None:
         try:
             from calphaebm.simulation.backends.pytorch import langevin_sample
+
             _LANGEVIN_SAMPLE = langevin_sample
             _HAS_LANGEVIN = True
             _LANGEVIN_IMPORT_ERROR = None
@@ -23,7 +24,7 @@ def check_langevin_available():
             _HAS_LANGEVIN = False
             _LANGEVIN_IMPORT_ERROR = str(e)
             logger.warning(f"langevin_sample not available. Error: {e}")
-    
+
     return _HAS_LANGEVIN
 
 

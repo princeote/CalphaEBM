@@ -46,6 +46,7 @@ logger = get_logger()
 
 # ── perturbation ──────────────────────────────────────────────────────────────
 
+
 def _perturb(R: torch.Tensor, sigma_min: float, sigma_max: float) -> torch.Tensor:
     """Perturb in IC space (radians), matching DSM training perturbation.
 
@@ -62,20 +63,18 @@ def _perturb(R: torch.Tensor, sigma_min: float, sigma_max: float) -> torch.Tenso
     Returns:
         (B, L, 3) perturbed coordinates.
     """
-    from calphaebm.geometry.reconstruct import (
-        nerf_reconstruct, coords_to_internal, extract_anchor,
-    )
+    from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
     B = R.shape[0]
     log_sigmas = torch.empty(B).uniform_(math.log(sigma_min), math.log(sigma_max))
     sigmas = torch.exp(log_sigmas)  # (B,)
 
-    theta, phi = coords_to_internal(R)   # (B, L-2), (B, L-3) in radians
-    anchor = extract_anchor(R)            # (B, 3, 3)
+    theta, phi = coords_to_internal(R)  # (B, L-2), (B, L-3) in radians
+    anchor = extract_anchor(R)  # (B, 3, 3)
 
     # Perturb angles and torsions with per-sample sigma
     theta_pert = theta + torch.randn_like(theta) * sigmas[:, None]
-    phi_pert   = phi   + torch.randn_like(phi)   * sigmas[:, None]
+    phi_pert = phi + torch.randn_like(phi) * sigmas[:, None]
 
     # Clamp theta to valid range [0.3, π-0.3] to avoid degenerate geometry
     theta_pert = theta_pert.clamp(0.3, math.pi - 0.3)
@@ -260,6 +259,7 @@ def _raw_packing_components(
 
 # ── results container ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class CalibrationResults:
     """Results from SubtermScaleCalibrator.run().
@@ -269,17 +269,17 @@ class CalibrationResults:
 
     # Recommended init weights (target / mean_raw)
     # 4-mer architecture
-    init_theta_phi_weight:   Optional[float] = None  # None = old architecture
+    init_theta_phi_weight: Optional[float] = None  # None = old architecture
     # Old 3-subterm architecture
     init_theta_theta_weight: float = 1.0
-    init_delta_phi_weight:   float = 1.0
-    init_phi_phi_weight:     Optional[float] = None   # None = MLP at init, skip
-    init_ram_weight:         float = 1.0
-    init_hb_alpha_weight:    Optional[float] = None    # None if not measured
-    init_hb_beta_weight:     Optional[float] = None    # None if not measured
-    init_rep_weight:         float = 1.0
-    init_pack_geom_weight:   float = 1.0              # from native measurement
-    init_pack_contact_weight: float = 1.0             # from native measurement
+    init_delta_phi_weight: float = 1.0
+    init_phi_phi_weight: Optional[float] = None  # None = MLP at init, skip
+    init_ram_weight: float = 1.0
+    init_hb_alpha_weight: Optional[float] = None  # None if not measured
+    init_hb_beta_weight: Optional[float] = None  # None if not measured
+    init_rep_weight: float = 1.0
+    init_pack_geom_weight: float = 1.0  # from native measurement
+    init_pack_contact_weight: float = 1.0  # from native measurement
 
     # Raw mean outputs (weight=1) for inspection
     means: Dict[str, Optional[float]] = field(default_factory=dict)
@@ -288,7 +288,7 @@ class CalibrationResults:
     current_lambdas: Dict[str, Optional[float]] = field(default_factory=dict)
 
     # Run metadata
-    target:    float = 0.1111
+    target: float = 0.1111
     sigma_min: float = 0.05
     sigma_max: float = 2.0
     n_samples: int = 0
@@ -299,47 +299,72 @@ class CalibrationResults:
         logger.info("=" * 72)
         logger.info("SUB-TERM SCALE CALIBRATION (%d subterms)", n_subterms)
         logger.info("=" * 72)
-        logger.info("  sigma ~ LogUniform(%.3f, %.3f)  |  target=%.4f/subterm  |  n=%d",
-                    self.sigma_min, self.sigma_max, self.target, self.n_samples)
+        logger.info(
+            "  sigma ~ LogUniform(%.3f, %.3f)  |  target=%.4f/subterm  |  n=%d",
+            self.sigma_min,
+            self.sigma_max,
+            self.target,
+            self.n_samples,
+        )
         logger.info("")
-        logger.info("  %-18s  %12s  %12s  %12s  %s",
-                    "sub-term", "current_λ", "raw_out(λ=1)", "new_λ", "notes")
+        logger.info("  %-18s  %12s  %12s  %12s  %s", "sub-term", "current_λ", "raw_out(λ=1)", "new_λ", "notes")
         logger.info("  " + "-" * 72)
 
         if is_4mer:
             rows = [
-                ("theta_phi",      "theta_phi",    "theta_phi",    self.init_theta_phi_weight,    "4-mer"),
+                ("theta_phi", "theta_phi", "theta_phi", self.init_theta_phi_weight, "4-mer"),
             ]
         else:
             rows = [
-                ("theta_theta",    "theta_theta",  "theta_theta",  self.init_theta_theta_weight,
-                    "" if self.init_theta_theta_weight != 1.0 else "MLP ~0, skipped"),
-                ("delta_phi",      "delta_phi",    "delta_phi",    self.init_delta_phi_weight,    ""),
-                ("phi_phi",        "phi_phi",      "phi_phi",      self.init_phi_phi_weight,
-                    "" if self.init_phi_phi_weight is not None else "MLP ~0, skipped"),
+                (
+                    "theta_theta",
+                    "theta_theta",
+                    "theta_theta",
+                    self.init_theta_theta_weight,
+                    "" if self.init_theta_theta_weight != 1.0 else "MLP ~0, skipped",
+                ),
+                ("delta_phi", "delta_phi", "delta_phi", self.init_delta_phi_weight, ""),
+                (
+                    "phi_phi",
+                    "phi_phi",
+                    "phi_phi",
+                    self.init_phi_phi_weight,
+                    "" if self.init_phi_phi_weight is not None else "MLP ~0, skipped",
+                ),
             ]
         rows += [
-            ("ram",            "ram",          "ram",          self.init_ram_weight,           ""),
-            ("hb_alpha",       "hb_alpha",     "hb_alpha",     self.init_hb_alpha_weight,
-                "" if self.init_hb_alpha_weight is not None else "not measured"),
-            ("hb_beta",        "hb_beta",      "hb_beta",      self.init_hb_beta_weight,
-                "" if self.init_hb_beta_weight is not None else "not measured"),
-            ("rep",            "rep",          "rep",          self.init_rep_weight,           "PRESERVED — safety constraint"),
-            ("pack_geom",      "pack_geom",    "pack_geom",    self.init_pack_geom_weight,    "native"),
-            ("pack_contact",   "pack_contact", "pack_contact", self.init_pack_contact_weight,  "native"),
+            ("ram", "ram", "ram", self.init_ram_weight, ""),
+            (
+                "hb_alpha",
+                "hb_alpha",
+                "hb_alpha",
+                self.init_hb_alpha_weight,
+                "" if self.init_hb_alpha_weight is not None else "not measured",
+            ),
+            (
+                "hb_beta",
+                "hb_beta",
+                "hb_beta",
+                self.init_hb_beta_weight,
+                "" if self.init_hb_beta_weight is not None else "not measured",
+            ),
+            ("rep", "rep", "rep", self.init_rep_weight, "PRESERVED — safety constraint"),
+            ("pack_geom", "pack_geom", "pack_geom", self.init_pack_geom_weight, "native"),
+            ("pack_contact", "pack_contact", "pack_contact", self.init_pack_contact_weight, "native"),
         ]
         for label, lam_key, mean_key, new_lam, note in rows:
-            cur  = self.current_lambdas.get(lam_key)
-            raw  = self.means.get(mean_key)
-            cur_s  = f"{cur:.4f}"  if cur  is not None else "  n/a  "
-            raw_s  = f"{raw:.4f}"  if raw  is not None else "  n/a  "
-            new_s  = f"{new_lam:.4f}" if new_lam is not None else "preserved"
+            cur = self.current_lambdas.get(lam_key)
+            raw = self.means.get(mean_key)
+            cur_s = f"{cur:.4f}" if cur is not None else "  n/a  "
+            raw_s = f"{raw:.4f}" if raw is not None else "  n/a  "
+            new_s = f"{new_lam:.4f}" if new_lam is not None else "preserved"
             logger.info("  %-18s  %12s  %12s  %12s  %s", label, cur_s, raw_s, new_s, note)
 
         logger.info("=" * 72)
 
     def apply_to_model(self, model: torch.nn.Module) -> None:
         """Write calibrated init weights directly into model parameters."""
+
         def _set_softplus_param(param: torch.nn.Parameter, target_val: float, eps: float = 1e-6) -> None:
             y = max(target_val - eps, 1e-8)
             raw = y if y > 20.0 else math.log(math.exp(y) - 1.0)
@@ -359,46 +384,44 @@ class CalibrationResults:
 
         if self.init_theta_phi_weight is not None:
             # 4-mer architecture: single lambda
-            _find_and_set(local,
-                ["_lambda_raw"],
-                self.init_theta_phi_weight, "theta_phi_weight")
+            _find_and_set(local, ["_lambda_raw"], self.init_theta_phi_weight, "theta_phi_weight")
         else:
             # Old 3-subterm architecture
             # θθ weight
-            _find_and_set(local,
+            _find_and_set(
+                local,
                 ["_theta_theta_mlp_w", "_theta_theta_weight_raw"],
-                self.init_theta_theta_weight, "theta_theta_weight")
+                self.init_theta_theta_weight,
+                "theta_theta_weight",
+            )
 
             # Δφ weight
-            _find_and_set(local,
-                ["_delta_phi_weight_raw"],
-                self.init_delta_phi_weight, "delta_phi_weight")
+            _find_and_set(local, ["_delta_phi_weight_raw"], self.init_delta_phi_weight, "delta_phi_weight")
 
             # φφ weight (if calibrated)
             if self.init_phi_phi_weight is not None:
-                _find_and_set(local,
-                    ["_phi_phi_mlp_w", "_phi_phi_weight_raw"],
-                    self.init_phi_phi_weight, "phi_phi_weight")
+                _find_and_set(
+                    local, ["_phi_phi_mlp_w", "_phi_phi_weight_raw"], self.init_phi_phi_weight, "phi_phi_weight"
+                )
             else:
                 logger.info("  Skipping phi_phi_weight — MLP at init, not calibrated")
 
         # Secondary
         if model.secondary is not None:
             ss = model.secondary
-            _find_and_set(ss,
+            _find_and_set(
+                ss,
                 ["_lambda_ram_raw", "_ram_weight_raw", "lambda_ram_raw", "lambda_ram"],
-                self.init_ram_weight, "ram_weight")
+                self.init_ram_weight,
+                "ram_weight",
+            )
 
             # H-bond lambdas live inside hb_helix/hb_sheet modules
             if self.init_hb_alpha_weight is not None and hasattr(ss, "hb_helix"):
-                _find_and_set(ss.hb_helix,
-                    ["_lambda_raw"],
-                    self.init_hb_alpha_weight, "hb_alpha_lambda")
+                _find_and_set(ss.hb_helix, ["_lambda_raw"], self.init_hb_alpha_weight, "hb_alpha_lambda")
 
             if self.init_hb_beta_weight is not None and hasattr(ss, "hb_sheet"):
-                _find_and_set(ss.hb_sheet,
-                    ["_lambda_raw"],
-                    self.init_hb_beta_weight, "hb_beta_lambda")
+                _find_and_set(ss.hb_sheet, ["_lambda_raw"], self.init_hb_beta_weight, "hb_beta_lambda")
 
         # Repulsion is a SAFETY constraint, not a physics energy contributor.
         # It must stay strong enough to prevent atom clashes that cause Hessian
@@ -410,15 +433,21 @@ class CalibrationResults:
         # Packing — lambda_pack only scales E_geom. E_contact has its own
         # internal lambda inside _HydrophobicPairs.
         if model.packing is not None:
-            _find_and_set(model.packing,
+            _find_and_set(
+                model.packing,
                 ["_lambda_pack_raw", "lambda_pack_raw"],
-                self.init_pack_geom_weight, "lambda_pack (from geom measurement)")
+                self.init_pack_geom_weight,
+                "lambda_pack (from geom measurement)",
+            )
 
             # Contact HP lambda is inside the burial sub-module
             if hasattr(model.packing, "burial"):
-                _find_and_set(model.packing.burial,
+                _find_and_set(
+                    model.packing.burial,
                     ["_lambda_hp_raw", "_lambda_raw"],
-                    self.init_pack_contact_weight, "lambda_hp (contact)")
+                    self.init_pack_contact_weight,
+                    "lambda_hp (contact)",
+                )
             else:
                 logger.info("  No burial sub-module — skipping contact lambda")
 
@@ -426,22 +455,22 @@ class CalibrationResults:
 
     def to_dict(self) -> dict:
         return {
-            "init_theta_phi_weight":     self.init_theta_phi_weight,
-            "init_theta_theta_weight":   self.init_theta_theta_weight,
-            "init_delta_phi_weight":     self.init_delta_phi_weight,
-            "init_phi_phi_weight":       self.init_phi_phi_weight,
-            "init_ram_weight":           self.init_ram_weight,
-            "init_hb_alpha_weight":      self.init_hb_alpha_weight,
-            "init_hb_beta_weight":       self.init_hb_beta_weight,
-            "init_rep_weight":           self.init_rep_weight,
-            "init_pack_geom_weight":     self.init_pack_geom_weight,
-            "init_pack_contact_weight":  self.init_pack_contact_weight,
-            "means":                     self.means,
-            "current_lambdas":           self.current_lambdas,
-            "target":                    self.target,
-            "sigma_min":                 self.sigma_min,
-            "sigma_max":                 self.sigma_max,
-            "n_samples":                 self.n_samples,
+            "init_theta_phi_weight": self.init_theta_phi_weight,
+            "init_theta_theta_weight": self.init_theta_theta_weight,
+            "init_delta_phi_weight": self.init_delta_phi_weight,
+            "init_phi_phi_weight": self.init_phi_phi_weight,
+            "init_ram_weight": self.init_ram_weight,
+            "init_hb_alpha_weight": self.init_hb_alpha_weight,
+            "init_hb_beta_weight": self.init_hb_beta_weight,
+            "init_rep_weight": self.init_rep_weight,
+            "init_pack_geom_weight": self.init_pack_geom_weight,
+            "init_pack_contact_weight": self.init_pack_contact_weight,
+            "means": self.means,
+            "current_lambdas": self.current_lambdas,
+            "target": self.target,
+            "sigma_min": self.sigma_min,
+            "sigma_max": self.sigma_max,
+            "n_samples": self.n_samples,
         }
 
     def save(self, path: str) -> None:
@@ -468,6 +497,7 @@ class CalibrationResults:
 
 # ── calibrator ────────────────────────────────────────────────────────────────
 
+
 class SubtermScaleCalibrator:
     """Calibrate energy sub-term init weights from PDB structures.
 
@@ -483,10 +513,10 @@ class SubtermScaleCalibrator:
 
     def __init__(
         self,
-        sigma_min:     float = 0.05,
-        sigma_max:     float = 8.0,
-        target:        float = 1.0,
-        calibrate_mlp: bool  = False,
+        sigma_min: float = 0.05,
+        sigma_max: float = 8.0,
+        target: float = 1.0,
+        calibrate_mlp: bool = False,
     ):
         if sigma_min <= 0:
             raise ValueError(f"sigma_min must be > 0, got {sigma_min}")
@@ -495,22 +525,25 @@ class SubtermScaleCalibrator:
         if target <= 0:
             raise ValueError(f"target must be > 0, got {target}")
 
-        self.sigma_min     = float(sigma_min)
-        self.sigma_max     = float(sigma_max)
-        self.target        = float(target)
+        self.sigma_min = float(sigma_min)
+        self.sigma_max = float(sigma_max)
+        self.target = float(target)
         self.calibrate_mlp = bool(calibrate_mlp)
 
         mlp_note = " (MLP sub-terms will be calibrated)" if calibrate_mlp else ""
         logger.info(
-            "SubtermScaleCalibrator: sigma~LogUniform(%.3f, %.3f), "
-            "target=%.4f/subterm%s",
-            self.sigma_min, self.sigma_max, self.target, mlp_note,
+            "SubtermScaleCalibrator: sigma~LogUniform(%.3f, %.3f), " "target=%.4f/subterm%s",
+            self.sigma_min,
+            self.sigma_max,
+            self.target,
+            mlp_note,
         )
 
     @staticmethod
     def _read_current_lambdas(model: torch.nn.Module) -> Dict[str, Optional[float]]:
         """Read the actual lambda values currently in the model."""
         import torch.nn.functional as _F
+
         lams: Dict[str, Optional[float]] = {}
         local = getattr(model, "local", None)
         if local is not None:
@@ -521,9 +554,9 @@ class SubtermScaleCalibrator:
             if hasattr(local, "theta_theta_weight"):
                 lams["theta_theta"] = float(local.theta_theta_weight.item())
             if hasattr(local, "delta_phi_weight"):
-                lams["delta_phi"]   = float(local.delta_phi_weight.item())
+                lams["delta_phi"] = float(local.delta_phi_weight.item())
             if hasattr(local, "phi_phi_weight"):
-                lams["phi_phi"]     = float(local.phi_phi_weight.item())
+                lams["phi_phi"] = float(local.phi_phi_weight.item())
         ss = getattr(model, "secondary", None)
         if ss is not None:
             lams["ram"] = float(ss.ram_weight.item()) if hasattr(ss, "ram_weight") else None
@@ -543,8 +576,8 @@ class SubtermScaleCalibrator:
     def run(
         self,
         segments: List[dict],
-        model:    torch.nn.Module,
-        n_samples:  int = 512,
+        model: torch.nn.Module,
+        n_samples: int = 512,
         batch_size: int = 16,
     ) -> CalibrationResults:
         """Run calibration over PDB segments."""
@@ -555,12 +588,18 @@ class SubtermScaleCalibrator:
         segs = segs[:n_samples]
 
         accum: Dict[str, List[float]] = {
-            k: [] for k in [
+            k: []
+            for k in [
                 "theta_phi",
-                "theta_theta", "delta_phi", "phi_phi",
-                "ram", "hb_alpha", "hb_beta",
+                "theta_theta",
+                "delta_phi",
+                "phi_phi",
+                "ram",
+                "hb_alpha",
+                "hb_beta",
                 "rep",
-                "pack_geom", "pack_contact",
+                "pack_geom",
+                "pack_contact",
             ]
         }
 
@@ -607,41 +646,44 @@ class SubtermScaleCalibrator:
                 logger.info("  Calibration: %d / %d batches", batch_idx + 1, n_batches)
 
         import numpy as np
+
         means = {k: float(np.mean(v)) if v else None for k, v in accum.items()}
 
         if is_4mer:
             return CalibrationResults(
-                init_theta_phi_weight=    self._safe_weight(means["theta_phi"], "theta_phi"),
-                init_ram_weight=          self._safe_weight(means["ram"],          "ram"),
-                init_hb_alpha_weight=     self._safe_weight(means["hb_alpha"],     "hb_alpha"),
-                init_hb_beta_weight=      self._safe_weight(means["hb_beta"],      "hb_beta"),
-                init_rep_weight=          self._safe_weight(means["rep"],          "rep"),
-                init_pack_geom_weight=    self._safe_weight(means["pack_geom"],    "pack_geom"),
-                init_pack_contact_weight= self._safe_weight(means["pack_contact"], "pack_contact"),
-                means=           means,
-                current_lambdas= current_lambdas,
-                target=          self.target,
-                sigma_min=       self.sigma_min,
-                sigma_max=       self.sigma_max,
-                n_samples=       len(segs),
+                init_theta_phi_weight=self._safe_weight(means["theta_phi"], "theta_phi"),
+                init_ram_weight=self._safe_weight(means["ram"], "ram"),
+                init_hb_alpha_weight=self._safe_weight(means["hb_alpha"], "hb_alpha"),
+                init_hb_beta_weight=self._safe_weight(means["hb_beta"], "hb_beta"),
+                init_rep_weight=self._safe_weight(means["rep"], "rep"),
+                init_pack_geom_weight=self._safe_weight(means["pack_geom"], "pack_geom"),
+                init_pack_contact_weight=self._safe_weight(means["pack_contact"], "pack_contact"),
+                means=means,
+                current_lambdas=current_lambdas,
+                target=self.target,
+                sigma_min=self.sigma_min,
+                sigma_max=self.sigma_max,
+                n_samples=len(segs),
             )
         else:
             return CalibrationResults(
-                init_theta_theta_weight=  self._safe_weight(means["theta_theta"],  "theta_theta") if self.calibrate_mlp else 1.0,
-                init_delta_phi_weight=    self._safe_weight(means["delta_phi"],    "delta_phi"),
-                init_phi_phi_weight=      self._safe_weight(means["phi_phi"],      "phi_phi") if self.calibrate_mlp else None,
-                init_ram_weight=          self._safe_weight(means["ram"],          "ram"),
-                init_hb_alpha_weight=     self._safe_weight(means["hb_alpha"],     "hb_alpha"),
-                init_hb_beta_weight=      self._safe_weight(means["hb_beta"],      "hb_beta"),
-                init_rep_weight=          self._safe_weight(means["rep"],          "rep"),
-                init_pack_geom_weight=    self._safe_weight(means["pack_geom"],    "pack_geom"),
-                init_pack_contact_weight= self._safe_weight(means["pack_contact"], "pack_contact"),
-                means=           means,
-                current_lambdas= current_lambdas,
-                target=          self.target,
-                sigma_min=       self.sigma_min,
-                sigma_max=       self.sigma_max,
-                n_samples=       len(segs),
+                init_theta_theta_weight=self._safe_weight(means["theta_theta"], "theta_theta")
+                if self.calibrate_mlp
+                else 1.0,
+                init_delta_phi_weight=self._safe_weight(means["delta_phi"], "delta_phi"),
+                init_phi_phi_weight=self._safe_weight(means["phi_phi"], "phi_phi") if self.calibrate_mlp else None,
+                init_ram_weight=self._safe_weight(means["ram"], "ram"),
+                init_hb_alpha_weight=self._safe_weight(means["hb_alpha"], "hb_alpha"),
+                init_hb_beta_weight=self._safe_weight(means["hb_beta"], "hb_beta"),
+                init_rep_weight=self._safe_weight(means["rep"], "rep"),
+                init_pack_geom_weight=self._safe_weight(means["pack_geom"], "pack_geom"),
+                init_pack_contact_weight=self._safe_weight(means["pack_contact"], "pack_contact"),
+                means=means,
+                current_lambdas=current_lambdas,
+                target=self.target,
+                sigma_min=self.sigma_min,
+                sigma_max=self.sigma_max,
+                n_samples=len(segs),
             )
 
     def _safe_weight(self, mean_val: Optional[float], name: str) -> float:
@@ -654,15 +696,22 @@ class SubtermScaleCalibrator:
         if mean_val is None or not math.isfinite(mean_val) or mean_val == 0:
             logger.warning(
                 "  Could not compute init weight for '%s' (mean=%.6g) — defaulting to 1.0",
-                name, mean_val or 0.0,
+                name,
+                mean_val or 0.0,
             )
             return 1.0
         abs_mean = abs(mean_val)
         weight = self.target / abs_mean
         weight = float(max(1e-3, min(1.5, weight)))  # cap at 1.5 — H-bond Hessians scale with λ
         if self.target / abs_mean > 1.5:
-            logger.info("  %-20s mean_raw=%.6f  target=%.4f  init_weight=%.4f (CAPPED from %.1f)",
-                        name, mean_val, self.target, weight, self.target / abs_mean)
+            logger.info(
+                "  %-20s mean_raw=%.6f  target=%.4f  init_weight=%.4f (CAPPED from %.1f)",
+                name,
+                mean_val,
+                self.target,
+                weight,
+                self.target / abs_mean,
+            )
         else:
             logger.info("  %-20s mean_raw=%.6f  target=%.4f  init_weight=%.4f", name, mean_val, self.target, weight)
         return weight
@@ -670,17 +719,18 @@ class SubtermScaleCalibrator:
     @staticmethod
     def _collate(batch: List[dict]) -> tuple[torch.Tensor, torch.Tensor]:
         """Pad variable-length segments to a uniform batch."""
+
         def _coords(s: dict) -> torch.Tensor:
             return s["coords"] if "coords" in s else s["R"]
 
         max_L = max(_coords(s).shape[0] for s in batch)
         Rs, seqs = [], []
         for s in batch:
-            R   = _coords(s)
+            R = _coords(s)
             seq = s["seq"]
             pad = max_L - R.shape[0]
             if pad > 0:
-                R   = torch.cat([R,   R.new_zeros(pad, 3)])
+                R = torch.cat([R, R.new_zeros(pad, 3)])
                 seq = torch.cat([seq, seq.new_zeros(pad)])
             Rs.append(R)
             seqs.append(seq)

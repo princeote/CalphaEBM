@@ -1,13 +1,13 @@
 """Training state dataclasses."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class ValidationMetrics:
     """Physics-based validation metrics for a single validation run."""
-    
+
     step: int
     composite_score: float
     bond_length_mean: float
@@ -16,7 +16,7 @@ class ValidationMetrics:
     train_loss: float
     native_vs_distorted_gap: float
     helix_vs_random_gap: float
-    mean_energy: float                    
+    mean_energy: float
     energy_std: float
     ramachandran_corr: float = 0.0
     delta_phi_corr: float = 0.0
@@ -31,7 +31,7 @@ class TrainingState:
     """Current training state."""
 
     global_step: int  # Total steps across all phases
-    phase_step: int   # Steps within current phase
+    phase_step: int  # Steps within current phase
     phase: str
     losses: Dict[str, float] = field(default_factory=dict)
     gates: Dict[str, float] = field(default_factory=dict)

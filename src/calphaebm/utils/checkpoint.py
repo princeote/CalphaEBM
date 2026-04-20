@@ -88,8 +88,14 @@ def save_checkpoint(
         checkpoint["meta"].update(extra)
 
     torch.save(checkpoint, path)
-    logger.info("Saved checkpoint: %s (step=%d, round=%d, loss=%.4f, config=%d keys)",
-                path, step, round_num, loss, len(checkpoint["config"]))
+    logger.info(
+        "Saved checkpoint: %s (step=%d, round=%d, loss=%.4f, config=%d keys)",
+        path,
+        step,
+        round_num,
+        loss,
+        len(checkpoint["config"]),
+    )
     return path
 
 
@@ -120,15 +126,19 @@ def load_checkpoint(
         config = data.get("config", {})
         meta = data.get("meta", {})
         version = meta.get("version", "unknown")
-        logger.info("Loaded checkpoint: %s (version=%s, step=%d, config=%d keys)",
-                    path, version, meta.get("step", 0), len(config))
+        logger.info(
+            "Loaded checkpoint: %s (version=%s, step=%d, config=%d keys)",
+            path,
+            version,
+            meta.get("step", 0),
+            len(config),
+        )
     elif isinstance(data, dict) and any(k.startswith("local.") or k.startswith("packing.") for k in data.keys()):
         # Legacy format: raw state_dict (keys look like module paths)
         state_dict = data
         config = {}
         meta = {"version": "legacy", "step": 0}
-        logger.info("Loaded legacy checkpoint: %s (%d keys, no config)",
-                    path, len(state_dict))
+        logger.info("Loaded legacy checkpoint: %s (%d keys, no config)", path, len(state_dict))
     else:
         # Unknown format — try as state_dict
         state_dict = data
@@ -157,15 +167,27 @@ def build_model_config(model: torch.nn.Module) -> Dict[str, Any]:
     if pack is not None:
         config["packing"] = {}
         # Scalar and vector buffers
-        for buf_name in ("rg_lambda", "rg_r0", "rg_nu", "rg_dead_zone", "rg_m", "rg_alpha",
-                         "coord_lambda", "coord_m", "coord_alpha",
-                         "rho_sigma", "rho_m", "rho_alpha", "rho_penalty_lambda",
-                         "rho_fit_a", "rho_fit_b", "rho_fit_c"):
+        for buf_name in (
+            "rg_lambda",
+            "rg_r0",
+            "rg_nu",
+            "rg_dead_zone",
+            "rg_m",
+            "rg_alpha",
+            "coord_lambda",
+            "coord_m",
+            "coord_alpha",
+            "rho_sigma",
+            "rho_m",
+            "rho_alpha",
+            "rho_penalty_lambda",
+            "rho_fit_a",
+            "rho_fit_b",
+            "rho_fit_c",
+        ):
             buf = getattr(pack, buf_name, None)
             if buf is not None:
-                config["packing"][buf_name] = (
-                    buf.cpu().tolist() if buf.numel() > 1 else float(buf.item())
-                )
+                config["packing"][buf_name] = buf.cpu().tolist() if buf.numel() > 1 else float(buf.item())
 
         # Architecture
         config["packing"]["topk"] = pack.topk

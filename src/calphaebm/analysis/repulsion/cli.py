@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .config import DEFAULT_CACHE_DIR, DEFAULT_OUTPUT_DIR, DEFAULT_PDB_LIST, PLOT_MAX_POINTS
 from .core import run_repulsion_analysis
-from .config import DEFAULT_CACHE_DIR, DEFAULT_PDB_LIST, DEFAULT_OUTPUT_DIR, PLOT_MAX_POINTS
 
 
 def add_subparser(subparsers):
@@ -24,11 +24,9 @@ def add_subparser(subparsers):
     parser.add_argument("--max-pdbs", type=int, default=None, help="Maximum number of PDBs to process")
     parser.add_argument("--max-chains", type=int, default=None, help="Maximum chains per PDB")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bars")
-    parser.add_argument("--plot-max-points", type=int, default=PLOT_MAX_POINTS, 
-                        help="Maximum points for plotting")
+    parser.add_argument("--plot-max-points", type=int, default=PLOT_MAX_POINTS, help="Maximum points for plotting")
 
-    parser.add_argument("--no-enrichment", action="store_true", 
-                        help="Skip OE/PMI enrichment computation")
+    parser.add_argument("--no-enrichment", action="store_true", help="Skip OE/PMI enrichment computation")
 
     parser.set_defaults(func=run_repulsion_analysis)
     return parser

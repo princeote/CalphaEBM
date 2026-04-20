@@ -1,25 +1,21 @@
 """Base trainer class for phased training."""
 
-import os
 import math
-from typing import Dict, Optional, List, Any, Set
+import os
+from typing import Any, Dict, List, Optional, Set
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from calphaebm.training.core.state import TrainingState, ValidationMetrics
+from calphaebm.training.core.checkpoint import find_latest_checkpoint, load_checkpoint, save_checkpoint
 from calphaebm.training.core.convergence import ConvergenceCriteria, ConvergenceMonitor
-from calphaebm.training.core.checkpoint import (
-    save_checkpoint,
-    load_checkpoint,
-    find_latest_checkpoint,
-)
 from calphaebm.training.core.schedules import apply_gate_schedule
-from calphaebm.training.validation.generation import GenerationValidator
-from calphaebm.training.validation.behavior import BehaviorValidator
-from calphaebm.training.validation import DynamicsValidator
+from calphaebm.training.core.state import TrainingState, ValidationMetrics
 from calphaebm.training.logging.diagnostics import DiagnosticLogger
+from calphaebm.training.validation import DynamicsValidator
+from calphaebm.training.validation.behavior import BehaviorValidator
+from calphaebm.training.validation.generation import GenerationValidator
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -107,9 +103,10 @@ class BaseTrainer:
         """Initialize validators and diagnostic logger if needed."""
         if self.generation_validator is None:
             val_langevin_steps = int(getattr(self, "val_langevin_steps", 500))
-            val_langevin_beta  = float(getattr(self, "val_langevin_beta", 1.0))
+            val_langevin_beta = float(getattr(self, "val_langevin_beta", 1.0))
             self.generation_validator = GenerationValidator(
-                self.model, self.device,
+                self.model,
+                self.device,
                 n_steps=val_langevin_steps,
                 langevin_beta=val_langevin_beta,
             )
@@ -120,10 +117,14 @@ class BaseTrainer:
         if self.dynamics_validator is None:
             try:
                 self.dynamics_validator = DynamicsValidator.from_pdb_ids(
-                    model=self.model, device=self.device,
+                    model=self.model,
+                    device=self.device,
                     pdb_ids=["1crn"],
-                    beta=100.0, n_steps=2000, step_size=1e-4,
-                    minimize_steps=200, save_every=50,
+                    beta=100.0,
+                    n_steps=2000,
+                    step_size=1e-4,
+                    minimize_steps=200,
+                    save_every=50,
                 )
             except Exception as e:
                 logger.warning("DynamicsValidator init failed: %s", e)
@@ -194,7 +195,7 @@ class BaseTrainer:
             load_optimizer=load_optimizer,
             strict=strict,
         )
-        
+
         # CRITICAL: Update trainer state from loaded state
         self.global_step = state.global_step
         self.phase_step = state.phase_step
@@ -207,10 +208,12 @@ class BaseTrainer:
         self.converged = state.converged
         self.convergence_step = state.convergence_step
         self.convergence_info = state.convergence_info
-        
-        logger.debug(f"Restored trainer state: global={self.global_step}, phase={self.phase_step}, "
-                   f"best_score={self.best_composite_score}, best_initialized={self.best_composite_score_initialized}")
-        
+
+        logger.debug(
+            f"Restored trainer state: global={self.global_step}, phase={self.phase_step}, "
+            f"best_score={self.best_composite_score}, best_initialized={self.best_composite_score_initialized}"
+        )
+
         return state
 
     def find_latest_checkpoint(self, phase: str) -> Optional[str]:
@@ -236,7 +239,7 @@ class BaseTrainer:
         for key in ("n_attempted", "n_structures_attempted"):
             if key in gen_metrics:
                 return self._safe_int_cast(gen_metrics[key])
-        
+
         # Fallback: generated + failures
         n_generated = self._get_generated_count(gen_metrics)
         n_fail = self._safe_int_cast(gen_metrics.get("generation_failures", 0))
@@ -258,7 +261,7 @@ class BaseTrainer:
         self._init_validators()
 
         val_max_samples = int(getattr(self, "val_max_samples", 256))
-        val_step_size   = getattr(self, "val_step_size", None)  # None = use constructor default
+        val_step_size = getattr(self, "val_step_size", None)  # None = use constructor default
         gen_metrics = self.generation_validator.validate(
             val_loader, max_samples=val_max_samples, step_size=val_step_size
         )
@@ -321,7 +324,7 @@ class BaseTrainer:
         # Get metrics
         rama = float(gen_metrics.get("ramachandran_corr", 0.0) or 0.0)
         dphi = float(gen_metrics.get("delta_phi_corr", 0.0) or 0.0)
-        
+
         # Clamp correlations to valid range
         rama = max(0.0, min(1.0, rama))
         dphi = max(0.0, min(1.0, dphi))
@@ -330,18 +333,18 @@ class BaseTrainer:
         if phase_name == "secondary":
             # Secondary phase: Ramachandran and Δφ correlations matter
             composite_score = (1.0 - rama) * 10.0 + (1.0 - dphi) * 10.0
-            
+
         elif phase_name == "local":
             # Local phase: bond RMSD + Δφ correlation (from local term)
             bond_rmsd = float(gen_metrics.get("bond_rmsd", 0.1) or 0.1)
             # Δφ correlation is meaningful for local phase (from Δφ persistence)
             dphi_score = (1.0 - dphi) * 5.0  # Weight Δφ appropriately
             composite_score = bond_rmsd * 100.0 + dphi_score + self.current_loss * 0.01
-            
+
             # Log note about Ramachandran if it's non-zero (for debugging)
             if rama > 0.01:
                 logger.debug(f"  Note: Ramachandran correlation ({rama:.4f}) is from secondary term (currently off)")
-                
+
         else:
             # Full phase: stability-aware composite (lower = better)
             # Components:
@@ -372,7 +375,12 @@ class BaseTrainer:
 
             logger.info(
                 "  Composite breakdown: bond=%.2f + dphi=%.2f + rmsd=%.2f + delta=%.2f + gap=%.2f = %.2f",
-                bond_score, dphi_score, rmsd_score, delta_score, gap_score, composite_score,
+                bond_score,
+                dphi_score,
+                rmsd_score,
+                delta_score,
+                gap_score,
+                composite_score,
             )
 
         if not math.isfinite(composite_score):
@@ -409,12 +417,15 @@ class BaseTrainer:
                 "gap_profile": behavior_metrics.get("gap_profile", {}),
                 "native_gap_gate_normalized": (
                     float(behavior_metrics.get("native_vs_distorted_gap", 0.0) or 0.0)
-                    / max(sum(
-                        float(v) for v in (
-                            self.model.get_gates().values()
-                            if hasattr(self.model, "get_gates") else {}.values()
-                        )
-                    ), 1e-6)
+                    / max(
+                        sum(
+                            float(v)
+                            for v in (
+                                self.model.get_gates().values() if hasattr(self.model, "get_gates") else {}.values()
+                            )
+                        ),
+                        1e-6,
+                    )
                 ),
                 **{k: v for k, v in dynamics_metrics.items() if k != "valid"},
             },
@@ -441,12 +452,12 @@ class BaseTrainer:
                 logger.info(f"  Ramachandran corr: {metrics.ramachandran_corr:.4f} (N/A - secondary term inactive)")
             else:
                 logger.info(f"  Ramachandran corr: N/A (secondary term inactive)")
-                
+
         elif phase_name == "secondary":
             # Secondary phase: both Ramachandran and Δφ are meaningful
             logger.info(f"  Ramachandran corr: {metrics.ramachandran_corr:.4f}")
             logger.info(f"  Delta phi corr: {metrics.delta_phi_corr:.4f}")
-            
+
         else:
             # Full phase: all metrics matter
             logger.info(f"  Ramachandran corr: {metrics.ramachandran_corr:.4f}")
@@ -459,7 +470,9 @@ class BaseTrainer:
             _stable = _am.get("is_stable", False)
             _neg_frac = _am.get("energy_delta_neg_frac", 0.0)
             _stable_str = "STABLE" if _stable else "UNSTABLE"
-            logger.info(f"  RMSD: {_m_rmsd:.3f} Å  Q: {_m_q:.3f}  E_delta: {_m_delta:+.4f}  neg%={100*_neg_frac:.0f}%  [{_stable_str}]")
+            logger.info(
+                f"  RMSD: {_m_rmsd:.3f} Å  Q: {_m_q:.3f}  E_delta: {_m_delta:+.4f}  neg%={100*_neg_frac:.0f}%  [{_stable_str}]"
+            )
             _m_gap = _am.get("mean_gap", 0.0)
             _gap_prof = _am.get("gap_profile", {})
             if _gap_prof:
@@ -588,17 +601,17 @@ class BaseTrainer:
         """Safely get a monitored weight value."""
         try:
             obj = self.model
-            parts = path.split('.')
+            parts = path.split(".")
             for i, part in enumerate(parts):
                 if not hasattr(obj, part):
                     # Log missing paths only once to avoid spam
-                    full_path = '.'.join(parts[:i+1])
+                    full_path = ".".join(parts[: i + 1])
                     if full_path not in self._warned_missing_paths:
                         logger.warning(f"Monitored weight path {full_path} not found")
                         self._warned_missing_paths.add(full_path)
                     return None
                 obj = getattr(obj, part)
-            
+
             if isinstance(obj, (torch.Tensor, nn.Parameter)):
                 return obj.item()
             elif isinstance(obj, (int, float)):

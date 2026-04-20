@@ -200,8 +200,8 @@ def subterm_discrimination_loss(
         if key not in E_pert:
             continue
 
-        e_nat_k = E_nat[key]       # (B,)
-        e_pert_k = E_pert[key]     # (B,)
+        e_nat_k = E_nat[key]  # (B,)
+        e_pert_k = E_pert[key]  # (B,)
 
         # Per-structure gap: positive = correct (native < perturbed)
         gap = (e_pert_k - e_nat_k).mean()

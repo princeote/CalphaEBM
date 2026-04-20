@@ -7,10 +7,10 @@ import numpy as np
 
 def pairwise_distances(R: np.ndarray) -> np.ndarray:
     """Compute all pairwise distances.
-    
+
     Args:
         R: (N, 3) coordinates or (B, N, 3) batched coordinates.
-        
+
     Returns:
         Distance matrix of shape (N, N) or (B, N, N).
     """
@@ -45,7 +45,7 @@ def native_contact_set(
     # Ensure R_ref is 2D
     if R_ref.ndim == 3:
         R_ref = R_ref[0]  # Take first batch if batched
-    
+
     D = pairwise_distances(R_ref)  # (N, N)
     N = D.shape[0]
 
@@ -55,12 +55,12 @@ def native_contact_set(
 
     # Upper triangle indices
     iu = np.triu_indices(N, k=1)  # (2, M) where M = N*(N-1)/2
-    
+
     # Extract values at upper triangle indices
     # D[iu] returns a 1D array of shape (M,)
     d_vals = D[iu]
     mask_vals = mask[iu]
-    
+
     # Find contacts
     good = mask_vals & (d_vals < cutoff)
 
@@ -94,7 +94,7 @@ def q_hard(
     # Handle batched input
     if R.ndim == 3:
         R = R[0]  # Take first batch
-    
+
     rij = R[native_i] - R[native_j]
     dij = np.sqrt(np.sum(rij * rij, axis=1) + 1e-12)
 
@@ -130,7 +130,7 @@ def q_smooth(
     # Handle batched input
     if R.ndim == 3:
         R = R[0]  # Take first batch
-    
+
     rij = R[native_i] - R[native_j]
     dij = np.sqrt(np.sum(rij * rij, axis=1) + 1e-12)
 
@@ -147,7 +147,7 @@ def contact_count(
     exclude: int = 3,
 ) -> int:
     """Count number of contacts (pairs within cutoff, excluding local).
-    
+
     Args:
         R: (N, 3) Cα coordinates.
         cutoff: Distance cutoff (Å).
@@ -157,7 +157,7 @@ def contact_count(
     # Handle batched input
     if R.ndim == 3:
         R = R[0]  # Take first batch
-    
+
     D = pairwise_distances(R)
     N = D.shape[0]
 
@@ -173,6 +173,7 @@ def contact_count(
 
 
 # ── Contact Order ────────────────────────────────────────────────────────
+
 
 def contact_order(
     R: np.ndarray,

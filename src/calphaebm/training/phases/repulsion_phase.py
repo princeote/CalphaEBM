@@ -37,14 +37,13 @@ def _count_subterms(model) -> int:
       4-mer local (has f_theta_phi): 7 subterms (θφ, ram, hb_α, hb_β, rep, geom, contact)
       Old local (has _theta_theta_mlp_w): 9 subterms (θθ, Δφ, φφ, ram, hb_α, hb_β, rep, geom, contact)
     """
-    local = getattr(model, 'local', None)
-    if local is not None and hasattr(local, 'f_theta_phi'):
-        n = 7   # 4-mer: θφ(1) + secondary(3) + rep(1) + packing(2)
+    local = getattr(model, "local", None)
+    if local is not None and hasattr(local, "f_theta_phi"):
+        n = 7  # 4-mer: θφ(1) + secondary(3) + rep(1) + packing(2)
     else:
-        n = 9   # old: local(3) + secondary(3) + rep(1) + packing(2)
+        n = 9  # old: local(3) + secondary(3) + rep(1) + packing(2)
 
-    logger.info("Auto-detected %d subterms (local type: %s)",
-                n, "4-mer" if n == 7 else "3-subterm")
+    logger.info("Auto-detected %d subterms (local type: %s)", n, "4-mer" if n == 7 else "3-subterm")
     return n
 
 
@@ -57,7 +56,10 @@ def _inv_softplus(y: float, eps: float = 1e-6) -> float:
 
 
 def _measure_native_repulsion(
-    model, train_loader, device, n_batches: int = 32,
+    model,
+    train_loader,
+    device,
+    n_batches: int = 32,
 ) -> Dict[str, float]:
     """Measure repulsion statistics on native structures, padding-aware."""
     rep_mod = model.repulsion
@@ -93,7 +95,7 @@ def _measure_native_repulsion(
 
             # Distance statistics — padding-aware
             diff = R.unsqueeze(2) - R.unsqueeze(1)  # (B, L, L, 3)
-            dist = torch.sqrt((diff ** 2).sum(-1) + 1e-8)  # (B, L, L)
+            dist = torch.sqrt((diff**2).sum(-1) + 1e-8)  # (B, L, L)
 
             idx = torch.arange(L, device=device)
             sep = (idx.unsqueeze(0) - idx.unsqueeze(1)).abs()
@@ -186,7 +188,10 @@ def run_repulsion_phase(
     rep_mod._lambda_rep_raw.data.fill_(_inv_softplus(1.0))
 
     stats_unit = _measure_native_repulsion(
-        model, train_loader, trainer.device, n_batches=n_measure_batches,
+        model,
+        train_loader,
+        trainer.device,
+        n_batches=n_measure_batches,
     )
 
     raw_mean = stats_unit["raw_mean"]
@@ -222,7 +227,10 @@ def run_repulsion_phase(
     logger.info("  ─────────────────────────────────────────────────────")
 
     stats_final = _measure_native_repulsion(
-        model, train_loader, trainer.device, n_batches=n_measure_batches,
+        model,
+        train_loader,
+        trainer.device,
+        n_batches=n_measure_batches,
     )
 
     expected = raw_mean * new_lambda

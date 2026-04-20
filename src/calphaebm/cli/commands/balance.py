@@ -51,16 +51,17 @@ logger = get_logger()
 
 # Default target force ratios
 DEFAULT_TARGET_RATIOS: Dict[str, float] = {
-    "local":     2.0,
+    "local": 2.0,
     "repulsion": 1.0,
     "secondary": 1.0,
-    "packing":   1.0,
+    "packing": 1.0,
 }
 
 
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 def add_parser(subparsers) -> None:
     parser = subparsers.add_parser(
@@ -71,47 +72,53 @@ def add_parser(subparsers) -> None:
     )
 
     # data
-    parser.add_argument("--pdb", nargs="+", required=True,
-                        help="PDB IDs or file of IDs (one per line)")
+    parser.add_argument("--pdb", nargs="+", required=True, help="PDB IDs or file of IDs (one per line)")
     parser.add_argument("--cache-dir", default="./pdb_cache")
     parser.add_argument("--seg-len", type=int, default=64)
     parser.add_argument("--stride", type=int, default=32)
-    parser.add_argument("--limit", type=int, default=1024,
-                        help="Max segments to load (default: 1024)")
-    parser.add_argument("--n-samples", type=int, default=64,
-                        help="Structures used per sigma measurement (default: 64)")
+    parser.add_argument("--limit", type=int, default=1024, help="Max segments to load (default: 1024)")
+    parser.add_argument("--n-samples", type=int, default=64, help="Structures used per sigma measurement (default: 64)")
 
     # measurement — mirrors the DSM training flags
-    parser.add_argument("--sigma-min", type=float, default=0.05,
-                        help="Lower bound of log-uniform sigma distribution in Å (default: 0.05)")
-    parser.add_argument("--sigma-max", type=float, default=8.0,
-                        help="Upper bound of log-uniform sigma distribution in Å (default: 8.0)")
-    parser.add_argument("--n-sigma-levels", type=int, default=20,
-                        help="Number of sigma levels drawn log-uniformly for measurement (default: 20)")
-    parser.add_argument("--n-passes", type=int, default=3,
-                        help="Number of independent measurement passes to average (default: 3)")
     parser.add_argument(
-        "--target-ratios", nargs=4, type=float, default=None,
+        "--sigma-min",
+        type=float,
+        default=0.05,
+        help="Lower bound of log-uniform sigma distribution in Å (default: 0.05)",
+    )
+    parser.add_argument(
+        "--sigma-max", type=float, default=8.0, help="Upper bound of log-uniform sigma distribution in Å (default: 8.0)"
+    )
+    parser.add_argument(
+        "--n-sigma-levels",
+        type=int,
+        default=20,
+        help="Number of sigma levels drawn log-uniformly for measurement (default: 20)",
+    )
+    parser.add_argument(
+        "--n-passes", type=int, default=3, help="Number of independent measurement passes to average (default: 3)"
+    )
+    parser.add_argument(
+        "--target-ratios",
+        nargs=4,
+        type=float,
+        default=None,
         metavar=("LOCAL", "REP", "SS", "PACK"),
         help="Override target force ratios (default: 2 1 1 1)",
     )
 
     # model / checkpoint
-    parser.add_argument("--ckpt", default=None,
-                        help="Checkpoint path (uses fresh model if omitted)")
-    parser.add_argument("--backbone-data-dir",
-                        default="analysis/backbone_geometry/data")
-    parser.add_argument("--repulsion-data-dir",
-                        default="analysis/repulsion_analysis/data")
+    parser.add_argument("--ckpt", default=None, help="Checkpoint path (uses fresh model if omitted)")
+    parser.add_argument("--backbone-data-dir", default="analysis/backbone_geometry/data")
+    parser.add_argument("--repulsion-data-dir", default="analysis/repulsion_analysis/data")
     parser.add_argument("--packing-data-dir", default=None)
 
     # output
-    parser.add_argument("--out", default=None,
-                        help="Write JSON report to this path")
+    parser.add_argument("--out", default=None, help="Write JSON report to this path")
     parser.add_argument(
-        "--apply-to-ckpt", default=None,
-        help="Write a corrected checkpoint (patches lambda raw parameters) "
-             "to this path.  Requires --ckpt.",
+        "--apply-to-ckpt",
+        default=None,
+        help="Write a corrected checkpoint (patches lambda raw parameters) " "to this path.  Requires --ckpt.",
     )
 
     parser.set_defaults(func=run)
@@ -120,6 +127,7 @@ def add_parser(subparsers) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _read_id_lines(path: str) -> List[str]:
     ids: List[str] = []
@@ -157,6 +165,7 @@ def _inv_softplus(y: float, eps: float = 1e-6) -> float:
 # Force measurement
 # ---------------------------------------------------------------------------
 
+
 def _rms_force(g: torch.Tensor) -> float:
     """RMS gradient magnitude: sqrt(mean_atoms ||g_i||^2).
 
@@ -167,8 +176,8 @@ def _rms_force(g: torch.Tensor) -> float:
 
 def _term_rms_at_sigma(
     model: TotalEnergy,
-    R_native: torch.Tensor,   # (B, L, 3)
-    seq: torch.Tensor,        # (B, L)
+    R_native: torch.Tensor,  # (B, L, 3)
+    seq: torch.Tensor,  # (B, L)
     sigma: float,
 ) -> Dict[str, float]:
     """RMS of -dE/dR for each term, evaluated on R_native + Gaussian noise."""
@@ -208,7 +217,7 @@ def _term_rms_at_sigma(
     if model.secondary is not None:
         _compute("secondary", lambda r: model.secondary(r, seq))
     if model.packing is not None:
-        _compute("packing",   lambda r: model.packing(r, seq))
+        _compute("packing", lambda r: model.packing(r, seq))
 
     return results
 
@@ -235,9 +244,7 @@ def measure_force_scales(
     B = min(n_samples, B_avail)
 
     # Draw sigma levels log-uniformly, same distribution as DSM
-    log_sigmas = torch.empty(n_sigma_levels).uniform_(
-        math.log(sigma_min), math.log(sigma_max)
-    )
+    log_sigmas = torch.empty(n_sigma_levels).uniform_(math.log(sigma_min), math.log(sigma_max))
     sigmas = torch.exp(log_sigmas).tolist()
     sigmas_sorted = sorted(sigmas)  # sorted only for display; measurement uses drawn order
 
@@ -246,7 +253,7 @@ def measure_force_scales(
     for sigma in sigmas:
         logger.info("  sigma=%.3f Å ...", sigma)
         idx = torch.randperm(B_avail, device=R.device)[:B]
-        R_sub   = R[idx]
+        R_sub = R[idx]
         seq_sub = seq[idx]
 
         rms = _term_rms_at_sigma(model, R_sub, seq_sub, sigma)
@@ -259,6 +266,7 @@ def measure_force_scales(
 # ---------------------------------------------------------------------------
 # Correction computation
 # ---------------------------------------------------------------------------
+
 
 def compute_corrections(
     rms_by_term_sigma: Dict[str, Dict[float, float]],
@@ -303,14 +311,15 @@ def compute_corrections(
 # Lambda reading and recommendation
 # ---------------------------------------------------------------------------
 
+
 def get_current_lambdas(model: TotalEnergy) -> Dict[str, float]:
     """Read current positive lambda values from each term module."""
     lams: Dict[str, float] = {}
 
     loc = model.local
-    lams["local.bond_spring"]   = float(loc.bond_spring.item())  # FIXED buffer — shown for info only, not rebalanced
-    lams["local.theta_theta"]   = float(loc.theta_theta_weight.item())
-    lams["local.delta_phi"]     = float(loc.delta_phi_weight.item())
+    lams["local.bond_spring"] = float(loc.bond_spring.item())  # FIXED buffer — shown for info only, not rebalanced
+    lams["local.theta_theta"] = float(loc.theta_theta_weight.item())
+    lams["local.delta_phi"] = float(loc.delta_phi_weight.item())
 
     if model.repulsion is not None and hasattr(model.repulsion, "lambda_rep"):
         lams["repulsion.lambda_rep"] = float(model.repulsion.lambda_rep.item())
@@ -318,9 +327,9 @@ def get_current_lambdas(model: TotalEnergy) -> Dict[str, float]:
     if model.secondary is not None:
         ss = model.secondary
         for attr, key in [
-            ("lambda_ram",       "secondary.lambda_ram"),
+            ("lambda_ram", "secondary.lambda_ram"),
             ("lambda_theta_phi", "secondary.lambda_theta_phi"),
-            ("lambda_phi_phi",   "secondary.lambda_phi_phi"),
+            ("lambda_phi_phi", "secondary.lambda_phi_phi"),
         ]:
             if hasattr(ss, attr):
                 lams[key] = float(getattr(ss, attr).item())
@@ -364,13 +373,13 @@ def format_cli_flags(new_lambdas: Dict[str, float]) -> str:
     lines: List[str] = []
     mapping = [
         # bond_spring omitted — fixed physical buffer, set via --init-bond-spring but not rebalanced
-        ("local.theta_theta",           "--init-theta-theta-weight"),
-        ("local.delta_phi",             "--init-delta-phi-weight"),
-        ("repulsion.lambda_rep",        "--init-lambda-rep"),
-        ("secondary.lambda_ram",        "--init-lambda-ram"),
-        ("secondary.lambda_theta_phi",  "--init-lambda-theta-phi"),
-        ("secondary.lambda_phi_phi",    "--init-lambda-phi-phi"),
-        ("packing.lambda_pack",         "--init-lambda-pack"),
+        ("local.theta_theta", "--init-theta-theta-weight"),
+        ("local.delta_phi", "--init-delta-phi-weight"),
+        ("repulsion.lambda_rep", "--init-lambda-rep"),
+        ("secondary.lambda_ram", "--init-lambda-ram"),
+        ("secondary.lambda_theta_phi", "--init-lambda-theta-phi"),
+        ("secondary.lambda_phi_phi", "--init-lambda-phi-phi"),
+        ("packing.lambda_pack", "--init-lambda-pack"),
     ]
     for key, flag in mapping:
         if key in new_lambdas:
@@ -381,6 +390,7 @@ def format_cli_flags(new_lambdas: Dict[str, float]) -> str:
 # ---------------------------------------------------------------------------
 # Checkpoint patching
 # ---------------------------------------------------------------------------
+
 
 def patch_checkpoint(
     ckpt_path: str,
@@ -403,19 +413,19 @@ def patch_checkpoint(
     # buffer (_bond_spring_val), not a trainable parameter. Balance must not
     # patch it. Use --init-bond-spring at training time to set it.
     new_key_map = {
-        "local.theta_theta":           "local._theta_theta_weight_raw",
-        "local.delta_phi":             "local._delta_phi_weight_raw",
-        "repulsion.lambda_rep":        "repulsion._lambda_rep_raw",
-        "secondary.lambda_ram":        "secondary._lambda_ram_raw",
-        "secondary.lambda_theta_phi":  "secondary._lambda_theta_phi_raw",
-        "secondary.lambda_phi_phi":    "secondary._lambda_phi_phi_raw",
-        "packing.lambda_pack":         "packing._lambda_pack_raw",
+        "local.theta_theta": "local._theta_theta_weight_raw",
+        "local.delta_phi": "local._delta_phi_weight_raw",
+        "repulsion.lambda_rep": "repulsion._lambda_rep_raw",
+        "secondary.lambda_ram": "secondary._lambda_ram_raw",
+        "secondary.lambda_theta_phi": "secondary._lambda_theta_phi_raw",
+        "secondary.lambda_phi_phi": "secondary._lambda_phi_phi_raw",
+        "packing.lambda_pack": "packing._lambda_pack_raw",
     }
     # Old key names that may exist in pre-rename checkpoints
     old_key_map = {
-        "secondary.lambda_ram":        "secondary._ram_weight_raw",
-        "secondary.lambda_theta_phi":  "secondary._theta_phi_weight_raw",
-        "secondary.lambda_phi_phi":    "secondary._phi_phi_weight_raw",
+        "secondary.lambda_ram": "secondary._ram_weight_raw",
+        "secondary.lambda_theta_phi": "secondary._theta_phi_weight_raw",
+        "secondary.lambda_phi_phi": "secondary._phi_phi_weight_raw",
     }
 
     ckpt = torch.load(ckpt_path, map_location=device)
@@ -436,14 +446,12 @@ def patch_checkpoint(
         if new_state_key in state:
             # Case 1: new key already present
             state[new_state_key] = tensor
-            logger.info("  Updated  %-50s new_lambda=%.6f  raw=%.6f",
-                        new_state_key, new_val, raw)
+            logger.info("  Updated  %-50s new_lambda=%.6f  raw=%.6f", new_state_key, new_val, raw)
             patched += 1
         else:
             # Case 3: key absent — insert it
             state[new_state_key] = tensor
-            logger.info("  Inserted %-50s new_lambda=%.6f  raw=%.6f",
-                        new_state_key, new_val, raw)
+            logger.info("  Inserted %-50s new_lambda=%.6f  raw=%.6f", new_state_key, new_val, raw)
             inserted += 1
 
         # Case 2: also patch old key if it exists (keeps checkpoint usable by old code)
@@ -458,13 +466,13 @@ def patch_checkpoint(
         ckpt = state
 
     torch.save(ckpt, out_path)
-    logger.info("Saved patched checkpoint (%d updated, %d inserted) -> %s",
-                patched, inserted, out_path)
+    logger.info("Saved patched checkpoint (%d updated, %d inserted) -> %s", patched, inserted, out_path)
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def run(args) -> int:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -485,7 +493,8 @@ def run(args) -> int:
                 "  output : %s\n"
                 "Refusing to overwrite the source checkpoint in-place — "
                 "pass a distinct output path, e.g. step007000_balanced.pt",
-                args.ckpt, args.apply_to_ckpt,
+                args.ckpt,
+                args.apply_to_ckpt,
             )
             return 1
 
@@ -498,8 +507,10 @@ def run(args) -> int:
 
     logger.info(
         "Target force ratios — local:%.1f  rep:%.1f  ss:%.1f  pack:%.1f",
-        target_ratios["local"], target_ratios["repulsion"],
-        target_ratios["secondary"], target_ratios["packing"],
+        target_ratios["local"],
+        target_ratios["repulsion"],
+        target_ratios["secondary"],
+        target_ratios["packing"],
     )
 
     # data
@@ -520,11 +531,10 @@ def run(args) -> int:
         logger.error("No segments found")
         return 1
 
-    dl = DataLoader(ds, batch_size=args.n_samples, shuffle=True,
-                    num_workers=0, drop_last=False)
+    dl = DataLoader(ds, batch_size=args.n_samples, shuffle=True, num_workers=0, drop_last=False)
     batch = next(iter(dl))
     R_native = batch[0].to(device)
-    seq      = batch[1].to(device)
+    seq = batch[1].to(device)
     logger.info("Loaded %d structures × L=%d", R_native.shape[0], R_native.shape[1])
 
     # model
@@ -568,8 +578,10 @@ def run(args) -> int:
         logger.error("--sigma-min (%.3f) must be < --sigma-max (%.3f)", sigma_min, sigma_max)
         return 1
 
-    print(f"\nMeasuring RMS force: {n_passes} passes × {n_sigma_levels} sigma levels "
-          f"log-uniformly from [{sigma_min}, {sigma_max}] Å ...")
+    print(
+        f"\nMeasuring RMS force: {n_passes} passes × {n_sigma_levels} sigma levels "
+        f"log-uniformly from [{sigma_min}, {sigma_max}] Å ..."
+    )
 
     # Accumulate mean_rms across passes, then average
     all_pass_mean_rms: Dict[str, List[float]] = {}
@@ -579,7 +591,9 @@ def run(args) -> int:
     for pass_idx in range(n_passes):
         logger.info("Pass %d/%d ...", pass_idx + 1, n_passes)
         rms_by_term_sigma, sigmas_sorted = measure_force_scales(
-            model, R_native, seq,
+            model,
+            R_native,
+            seq,
             sigma_min=sigma_min,
             sigma_max=sigma_max,
             n_sigma_levels=n_sigma_levels,
@@ -594,20 +608,20 @@ def run(args) -> int:
             all_pass_mean_rms.setdefault(term, []).append(mean_val)
 
     # Average mean_rms across passes
-    avg_mean_rms: Dict[str, float] = {
-        term: sum(vals) / len(vals)
-        for term, vals in all_pass_mean_rms.items()
-    }
+    avg_mean_rms: Dict[str, float] = {term: sum(vals) / len(vals) for term, vals in all_pass_mean_rms.items()}
     std_mean_rms: Dict[str, float] = {
-        term: (sum((v - avg_mean_rms[term])**2 for v in vals) / max(len(vals), 1)) ** 0.5
+        term: (sum((v - avg_mean_rms[term]) ** 2 for v in vals) / max(len(vals), 1)) ** 0.5
         for term, vals in all_pass_mean_rms.items()
     }
 
     # Print per-pass summary
     if n_passes > 1:
         print(f"\nPer-pass mean RMS (averaged over sigma levels):")
-        print(f"  {'term':>12}" + "".join(f"  {'pass'+str(i+1):>10}" for i in range(n_passes))
-              + f"  {'avg':>10}  {'std':>8}")
+        print(
+            f"  {'term':>12}"
+            + "".join(f"  {'pass'+str(i+1):>10}" for i in range(n_passes))
+            + f"  {'avg':>10}  {'std':>8}"
+        )
         for term in avg_mean_rms:
             row = f"  {term:>12}"
             for v in all_pass_mean_rms[term]:
@@ -651,7 +665,7 @@ def run(args) -> int:
     print(f"  {'-'*12}  {'-'*10}  {'-'*10}  {'-'*11}  {'-'*30}")
     for t in terms:
         corr = corrections.get(t, 1.0)
-        tgt  = S * target_ratios.get(t, 1.0)
+        tgt = S * target_ratios.get(t, 1.0)
         mrms = mean_rms.get(t, 0.0)
         if corr > 1.05:
             interp = f"too strong by {corr:.2f}×"
@@ -672,7 +686,7 @@ def run(args) -> int:
             print(f"  {k:<45}  {'—':>10}  {'—':>10}  {new_lambdas[k]:>5.3f}×")
         else:
             cur = current_lambdas.get(k, float("nan"))
-            nw  = new_lambdas[k]
+            nw = new_lambdas[k]
             chg = nw / cur if cur > 0 else float("nan")
             print(f"  {k:<45}  {cur:>10.6f}  {nw:>10.6f}  {chg:>5.3f}×")
 
@@ -689,24 +703,20 @@ def run(args) -> int:
     # JSON
     if args.out:
         report = {
-            "target_ratios":     target_ratios,
-            "sigma_min":         sigma_min,
-            "sigma_max":         sigma_max,
-            "n_sigma_levels":    n_sigma_levels,
-            "n_passes":          n_passes,
-            "unit_scale_S":      S,
+            "target_ratios": target_ratios,
+            "sigma_min": sigma_min,
+            "sigma_max": sigma_max,
+            "n_sigma_levels": n_sigma_levels,
+            "n_passes": n_passes,
+            "unit_scale_S": S,
             "per_pass_mean_rms": all_pass_mean_rms,
-            "avg_mean_rms":      avg_mean_rms,
-            "std_mean_rms":      std_mean_rms,
-            "rms_by_term_sigma": {
-                t: {str(s): v for s, v in rms.items()}
-                for t, rms in rms_by_term_sigma.items()
-            },
-            "mean_rms":          mean_rms,
-            "corrections":       corrections,
-            "current_lambdas":   current_lambdas,
-            "new_lambdas":       {k: v for k, v in new_lambdas.items()
-                                  if not k.endswith("_info")},
+            "avg_mean_rms": avg_mean_rms,
+            "std_mean_rms": std_mean_rms,
+            "rms_by_term_sigma": {t: {str(s): v for s, v in rms.items()} for t, rms in rms_by_term_sigma.items()},
+            "mean_rms": mean_rms,
+            "corrections": corrections,
+            "current_lambdas": current_lambdas,
+            "new_lambdas": {k: v for k, v in new_lambdas.items() if not k.endswith("_info")},
         }
         with open(args.out, "w") as f:
             json.dump(report, f, indent=2)

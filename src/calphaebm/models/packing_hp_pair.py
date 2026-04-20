@@ -45,14 +45,49 @@ def _inv_softplus(y: float, eps: float = 1e-8) -> float:
 
 
 KYTE_DOOLITTLE_20 = [
-    +1.8, -4.5, -3.5, -3.5, +2.5, -3.5, -3.5, -0.4, -3.2, +4.5,
-    +3.8, -3.9, +1.9, +2.8, -1.6, -0.8, -0.7, -0.9, -1.3, +4.2,
+    +1.8,
+    -4.5,
+    -3.5,
+    -3.5,
+    +2.5,
+    -3.5,
+    -3.5,
+    -0.4,
+    -3.2,
+    +4.5,
+    +3.8,
+    -3.9,
+    +1.9,
+    +2.8,
+    -1.6,
+    -0.8,
+    -0.7,
+    -0.9,
+    -1.3,
+    +4.2,
 ]
 
 H_SVD_MEDIUM_20 = [
-    +0.3279, +1.0000, -0.9373, -0.8584, +0.6153, -0.5127, -0.3207, +0.8355,
-    -0.7528, +0.6792, +0.5284, -0.8558, -0.4101, -0.7967, -0.6088, -0.5275,
-    -0.2591, +0.8940, +0.0663, +0.1645,
+    +0.3279,
+    +1.0000,
+    -0.9373,
+    -0.8584,
+    +0.6153,
+    -0.5127,
+    -0.3207,
+    +0.8355,
+    -0.7528,
+    +0.6792,
+    +0.5284,
+    -0.8558,
+    -0.4101,
+    -0.7967,
+    -0.6088,
+    -0.5275,
+    -0.2591,
+    +0.8940,
+    +0.0663,
+    +0.1645,
 ]
 
 
@@ -67,9 +102,14 @@ class _HydrophobicPairs(nn.Module):
     Parameters: 20 (h) + 2 (r_peak, sigma) + 1 (lambda_hp) = 23
     """
 
-    def __init__(self, num_aa: int = 20, init_lambda: float = 1.0,
-                 init_r_half: float = 6.5, init_tau: float = 1.5,
-                 h_init: str = "svd"):
+    def __init__(
+        self,
+        num_aa: int = 20,
+        init_lambda: float = 1.0,
+        init_r_half: float = 6.5,
+        init_tau: float = 1.5,
+        h_init: str = "svd",
+    ):
         super().__init__()
 
         if h_init == "svd":
@@ -90,8 +130,9 @@ class _HydrophobicPairs(nn.Module):
         self._tau_hp_raw = nn.Parameter(torch.tensor(_inv_softplus(init_tau), dtype=torch.float32))
         self._lambda_hp_raw = nn.Parameter(torch.tensor(_inv_softplus(init_lambda), dtype=torch.float32))
 
-        logger.debug("HydrophobicPairs: %d AA, h_init=%s, r_peak=%.1f, sigma=%.1f",
-                      num_aa, init_source, init_r_half, init_tau)
+        logger.debug(
+            "HydrophobicPairs: %d AA, h_init=%s, r_peak=%.1f, sigma=%.1f", num_aa, init_source, init_r_half, init_tau
+        )
 
     @property
     def r_peak(self) -> torch.Tensor:
@@ -121,7 +162,7 @@ class _HydrophobicPairs(nn.Module):
         seq_j = torch.gather(seq, 1, j_safe.view(B, -1)).view(B, L, K)
         h_j = self.h[seq_j]
         r_clamped = r.clamp(max=max_dist)
-        g = torch.exp(-((r_clamped - self.r_peak) ** 2) / (2.0 * self.sigma_hp ** 2))
+        g = torch.exp(-((r_clamped - self.r_peak) ** 2) / (2.0 * self.sigma_hp**2))
         g = g * valid
         pair_energy = h_i.unsqueeze(-1) * h_j * g
         E_hp_i = pair_energy.sum(dim=-1)

@@ -18,7 +18,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -72,7 +72,16 @@ class ValidationLogger:
         # Column header
         logger.info(
             "  %-10s  %3s  %7s  %6s  %5s  %4s  %6s  %7s  %5s  %7s",
-            "structure", "L", "ΔE", "RMSD", "Q", "Rg%", "RMSF", "k64dR", "CO", "accept%",
+            "structure",
+            "L",
+            "ΔE",
+            "RMSD",
+            "Q",
+            "Rg%",
+            "RMSF",
+            "k64dR",
+            "CO",
+            "accept%",
         )
         logger.info("  " + "·" * (W - 4))
 
@@ -109,7 +118,16 @@ class ValidationLogger:
 
             logger.info(
                 "  %-10s  %3d  %+7.3f  %6.2f  %5.3f  %3.0f%%  %6.3f  %7.2f  %5.3f  %6.1f%%",
-                tag, L, ed, rm, q, rg, rf, kd, co, ac,
+                tag,
+                L,
+                ed,
+                rm,
+                q,
+                rg,
+                rf,
+                kd,
+                co,
+                ac,
             )
 
             # Minimization info (if available)
@@ -120,7 +138,11 @@ class ValidationLogger:
             if min_steps > 0:
                 logger.info(
                     "  %-10s       minimized in %d steps: ΔE=%+.3f  dRMSD=%.2f  maxF=%.1f",
-                    "", min_steps, e_rlx, dr_min, mf,
+                    "",
+                    min_steps,
+                    e_rlx,
+                    dr_min,
+                    mf,
                 )
 
             e_deltas.append(ed)
@@ -163,18 +185,28 @@ class ValidationLogger:
         logger.info("  " + "·" * (W - 4))
         logger.info(
             "  %-10s  %3s  %+7.3f  %6.2f  %5.3f  %3.0f%%  %6.3f  %7.2f  %5.3f  %6.1f%%",
-            "MEAN", "",
-            float(e_deltas.mean()), float(rmsds.mean()), float(q_vals.mean()),
-            float(rg_ratios.mean()) * 100, float(rmsfs.mean()),
-            float(k64drmsds.mean()), float(contact_orders.mean()),
+            "MEAN",
+            "",
+            float(e_deltas.mean()),
+            float(rmsds.mean()),
+            float(q_vals.mean()),
+            float(rg_ratios.mean()) * 100,
+            float(rmsfs.mean()),
+            float(k64drmsds.mean()),
+            float(contact_orders.mean()),
             float(np.mean(accept_pcts)) if accept_pcts else 0.0,
         )
         logger.info(
             "  %-10s  %3s  ±%6.3f  ±%5.2f  ±%4.3f  ±%2.0f%%  ±%5.3f  ±%6.2f  ±%4.3f  ±%5.1f%%",
-            "STD", "",
-            float(e_deltas.std()), float(rmsds.std()), float(q_vals.std()),
-            float(rg_ratios.std()) * 100, float(rmsfs.std()),
-            float(k64drmsds.std()), float(contact_orders.std()),
+            "STD",
+            "",
+            float(e_deltas.std()),
+            float(rmsds.std()),
+            float(q_vals.std()),
+            float(rg_ratios.std()) * 100,
+            float(rmsfs.std()),
+            float(k64drmsds.std()),
+            float(contact_orders.std()),
             float(np.std(accept_pcts)) if accept_pcts else 0.0,
         )
 
@@ -194,22 +226,28 @@ class ValidationLogger:
 
         # Composite score (lower is better)
         # dRMSD_af replaces rg_af — topology-sensitive anti-funnel fraction
-        composite = (-q_mean + k64drmsd_mean / 2.0 + rg_dev / 2.0 +
-                     q_af_mean / 20.0 + drmsd_af_mean / 20.0)
+        composite = -q_mean + k64drmsd_mean / 2.0 + rg_dev / 2.0 + q_af_mean / 20.0 + drmsd_af_mean / 20.0
 
         accept_mean = float(np.mean(accept_pcts)) if accept_pcts else 0.0
 
         logger.info(
             "  Metrics:   Q=%.3f  RMSD=%.2f  Rg%%=%.0f%%  ΔE=%+.3f  RMSF=%.3f  accept=%.1f%%",
-            q_mean, rmsd_mean, rg_pct_mean, e_delta_mean, rmsf_mean, accept_mean,
+            q_mean,
+            rmsd_mean,
+            rg_pct_mean,
+            e_delta_mean,
+            rmsf_mean,
+            accept_mean,
         )
         logger.info(
             "  Funnels:   Q_af=%.1f%%  dRMSD_af=%.1f%%",
-            q_af_mean, drmsd_af_mean,
+            q_af_mean,
+            drmsd_af_mean,
         )
         logger.info(
             "  Structure: k64dRMSD=%.2f  CO=%.3f",
-            k64drmsd_mean, co_mean,
+            k64drmsd_mean,
+            co_mean,
         )
         # Per-subterm energy composition (E/res native, minimized, and delta)
         _has_subterms = any(len(v) > 0 for v in _subterm_native.values())
@@ -241,17 +279,26 @@ class ValidationLogger:
             rmsd_mins = [r.get("rmsd_min", 0.0) for r in results if not r.get("error")]
             q_mins = [r.get("q_min", 1.0) for r in results if not r.get("error")]
             if rmsd_mins:
-                logger.info("  Minimized: RMSD=%.2f  Q=%.3f  (model minimum vs PDB)",
-                            float(np.mean(rmsd_mins)), float(np.mean(q_mins)))
+                logger.info(
+                    "  Minimized: RMSD=%.2f  Q=%.3f  (model minimum vs PDB)",
+                    float(np.mean(rmsd_mins)),
+                    float(np.mean(q_mins)),
+                )
         logger.info(
             "  Composite: %.3f  =  -Q(%.3f) + k64dR/2(%.3f) + Rg_dev/2(%.3f) + Q_af/20(%.3f) + dRMSD_af/20(%.3f)",
-            composite, -q_mean, k64drmsd_mean / 2.0, rg_dev / 2.0,
-            q_af_mean / 20.0, drmsd_af_mean / 20.0,
+            composite,
+            -q_mean,
+            k64drmsd_mean / 2.0,
+            rg_dev / 2.0,
+            q_af_mean / 20.0,
+            drmsd_af_mean / 20.0,
         )
         if rama_corr > 0 or dphi_corr > 0:
             logger.info("  Rama=%.3f  Δφ=%.3f", rama_corr, dphi_corr)
         logger.info(
-            "  Errors:    %d/%d", n_errors, n_structs,
+            "  Errors:    %d/%d",
+            n_errors,
+            n_structs,
         )
         logger.info("═" * W)
 
@@ -305,14 +352,18 @@ class ValidationLogger:
         logger.info("    Negatives: %d new (%s)", n_negatives, cat_str)
         logger.info(
             "    Basin eval: RMSD=%.2f  Q=%.3f  Rg%%=%.0f%%  ΔE=%+.3f  Score=%.3f",
-            eval_summary.get("rmsd_mean", 0), eval_summary.get("q_mean", 0),
-            eval_summary.get("rg_pct", 0), eval_summary.get("e_delta_mean", 0),
+            eval_summary.get("rmsd_mean", 0),
+            eval_summary.get("q_mean", 0),
+            eval_summary.get("rg_pct", 0),
+            eval_summary.get("e_delta_mean", 0),
             eval_summary.get("composite", 999),
         )
         if time_collect > 0:
             logger.info(
                 "    Time: collect=%dm  retrain=%dm  eval=%dm",
-                int(time_collect), int(time_retrain), int(time_eval),
+                int(time_collect),
+                int(time_retrain),
+                int(time_eval),
             )
         logger.info("    Best so far: Score=%.3f (round %d)", best_score, best_round)
         logger.info("─" * 66)

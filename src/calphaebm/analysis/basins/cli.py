@@ -7,23 +7,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .core import run_basin_analysis
 from .config import (
     DEFAULT_CACHE_DIR,
-    DEFAULT_PDB_LIST,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_N_BASINS,
+    DEFAULT_CIRCULAR_PHI,
     DEFAULT_CLUSTER_METHOD,
-    DEFAULT_RANDOM_STATE,
-    DEFAULT_MAX_PDBS,
     DEFAULT_MAX_CHAINS,
+    DEFAULT_MAX_PDBS,
+    DEFAULT_N_BASINS,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PDB_LIST,
+    DEFAULT_PLOT_MAX_POINTS,
+    DEFAULT_PSEUDOCOUNT,
+    DEFAULT_RANDOM_STATE,
     DEFAULT_SAMPLE_EVERY,
     DEFAULT_SMOOTH_SIGMA,
-    DEFAULT_PSEUDOCOUNT,
-    DEFAULT_CIRCULAR_PHI,
     DEFAULT_STANDARDIZE,
-    DEFAULT_PLOT_MAX_POINTS,
 )
+from .core import run_basin_analysis
 
 
 def add_subparser(subparsers):

@@ -45,20 +45,21 @@ Usage:
 """
 
 import argparse
+import json
 import math
 import os
 import sys
 import time
-import json
+from pathlib import Path
+
 import numpy as np
 import torch
-
-from pathlib import Path
 
 
 def get_native_structure(pdb_id, cache_dir="pdb_cache"):
     """Load native structure from PDB."""
     from calphaebm.data.pdb_chain_dataset import PDBChainDataset
+
     dataset = PDBChainDataset(
         pdb_ids=[pdb_id],
         cache_dir=cache_dir,
@@ -112,7 +113,7 @@ def generate_random_chain(L, seq, seed=None):
 
 def compute_metrics(coords, native_coords, ni, nj, d0, rg_native):
     """Compute Q, RMSD, Rg, dRMSD for current structure."""
-    from calphaebm.evaluation.metrics import rmsd_kabsch, q_smooth
+    from calphaebm.evaluation.metrics import q_smooth, rmsd_kabsch
 
     q = q_smooth(coords, ni, nj, d0)
     rmsd = rmsd_kabsch(coords, native_coords)
@@ -124,8 +125,11 @@ def compute_metrics(coords, native_coords, ni, nj, d0, rg_native):
     drmsd = float(np.sqrt(np.mean((d_nat[triu] - d_cur[triu]) ** 2)))
 
     return {
-        "q": q, "rmsd": rmsd, "rg": rg,
-        "rg_ratio": rg / max(rg_native, 1e-6), "drmsd": drmsd,
+        "q": q,
+        "rmsd": rmsd,
+        "rg": rg,
+        "rg_ratio": rg / max(rg_native, 1e-6),
+        "drmsd": drmsd,
     }
 
 
@@ -139,26 +143,41 @@ def minimize_structure(model, R_init, seq_tensor, lengths):
     L = int(lengths[0].item())
     result = lbfgs_minimize(model, R_init, seq_tensor, lengths=lengths)
 
-    R_min   = result["R_min"]
-    E_min   = result["E_minimized"]
+    R_min = result["R_min"]
+    E_min = result["E_minimized"]
     n_steps = result["min_steps"]
-    delta_E = result["E_relax"]   # E_min - E_pdb
+    delta_E = result["E_relax"]  # E_min - E_pdb
 
     # dRMSD between input and minimized
     coords_init = R_init[0, :L].detach().numpy()
-    coords_min  = R_min[0, :L].detach().numpy()
+    coords_min = R_min[0, :L].detach().numpy()
     d_init = np.sqrt(((coords_init[:, None] - coords_init[None, :]) ** 2).sum(-1))
-    d_min  = np.sqrt(((coords_min[:, None]  - coords_min[None,  :]) ** 2).sum(-1))
-    triu   = np.triu_indices(L, k=1)
-    drmsd  = float(np.sqrt(np.mean((d_init[triu] - d_min[triu]) ** 2)))
+    d_min = np.sqrt(((coords_min[:, None] - coords_min[None, :]) ** 2).sum(-1))
+    triu = np.triu_indices(L, k=1)
+    drmsd = float(np.sqrt(np.mean((d_init[triu] - d_min[triu]) ** 2)))
 
     return R_min, E_min, n_steps, drmsd, delta_E
 
 
 def run_single_trial(
-    model, seq_tensor, R_native, native_np, ni, nj, d0, rg_native,
-    n_steps, anneal_steps, beta_start, beta_end, equil_beta,
-    step_size, force_cap, start_mode, trial_idx, log_every,
+    model,
+    seq_tensor,
+    R_native,
+    native_np,
+    ni,
+    nj,
+    d0,
+    rg_native,
+    n_steps,
+    anneal_steps,
+    beta_start,
+    beta_end,
+    equil_beta,
+    step_size,
+    force_cap,
+    start_mode,
+    trial_idx,
+    log_every,
     minimize=False,
 ):
     """Run one trial (basin stability or folding)."""
@@ -179,22 +198,29 @@ def run_single_trial(
 
     # Minimize before dynamics
     if minimize:
-        R_init, E_min, min_steps, min_drmsd, min_dE = minimize_structure(
-            model, R_init, seq_tensor, lengths)
+        R_init, E_min, min_steps, min_drmsd, min_dE = minimize_structure(model, R_init, seq_tensor, lengths)
         print(f"    Minimized in {min_steps} steps: ΔE={min_dE:.3f}  dRMSD={min_drmsd:.2f}  E_min={E_min:.3f}")
 
     # Initial metrics
     init_coords = R_init[0, :L].detach().numpy()
     init_metrics = compute_metrics(init_coords, native_np, ni, nj, d0, rg_native)
 
-    print(f"\n  Trial {trial_idx + 1}: start_mode={start_mode}  "
-          f"Q={init_metrics['q']:.3f}  RMSD={init_metrics['rmsd']:.1f}  "
-          f"dRMSD={init_metrics['drmsd']:.1f}  Rg_ratio={init_metrics['rg_ratio']:.2f}")
+    print(
+        f"\n  Trial {trial_idx + 1}: start_mode={start_mode}  "
+        f"Q={init_metrics['q']:.3f}  RMSD={init_metrics['rmsd']:.1f}  "
+        f"dRMSD={init_metrics['drmsd']:.1f}  Rg_ratio={init_metrics['rg_ratio']:.2f}"
+    )
 
     # Trajectory storage
     trajectory = {
-        "steps": [], "q": [], "rmsd": [], "drmsd": [],
-        "rg_ratio": [], "energy": [], "beta": [], "accept_rate": [],
+        "steps": [],
+        "q": [],
+        "rmsd": [],
+        "drmsd": [],
+        "rg_ratio": [],
+        "energy": [],
+        "beta": [],
+        "accept_rate": [],
     }
 
     # Best structure found
@@ -233,8 +259,12 @@ def run_single_trial(
         if sim is None or (anneal_steps > 0 and step <= anneal_steps and step % 1000 == 1):
             sim = get_simulator(
                 name="mala",
-                model=model, seq=seq_tensor, R_init=R_current.detach(),
-                step_size=step_size, beta=current_beta, force_cap=force_cap,
+                model=model,
+                seq=seq_tensor,
+                R_init=R_current.detach(),
+                step_size=step_size,
+                beta=current_beta,
+                force_cap=force_cap,
                 lengths=lengths,
             )
 
@@ -250,7 +280,7 @@ def run_single_trial(
             metrics = compute_metrics(coords, native_np, ni, nj, d0, rg_native)
 
             accept_rate = 0.0
-            if hasattr(sim, 'acceptance_rate'):
+            if hasattr(sim, "acceptance_rate"):
                 accept_rate = sim.acceptance_rate
 
             trajectory["steps"].append(step)
@@ -306,9 +336,11 @@ def run_single_trial(
     if start_mode != "native":
         status = "FOLDED" if result["folded"] else "FAILED"
 
-    print(f"\n  Trial {trial_idx + 1} DONE: "
-          f"final_Q={final_metrics['q']:.3f}  best_Q={best_q:.3f}@step{best_step}  "
-          f"{status}")
+    print(
+        f"\n  Trial {trial_idx + 1} DONE: "
+        f"final_Q={final_metrics['q']:.3f}  best_Q={best_q:.3f}@step{best_step}  "
+        f"{status}"
+    )
 
     return result
 
@@ -321,24 +353,43 @@ def main():
     parser.add_argument("--cache-dir", default="pdb_cache", help="PDB cache directory")
     parser.add_argument("--n-trials", type=int, default=1, help="Number of independent trials")
     parser.add_argument("--n-steps", type=int, default=100_000, help="Total steps per trial")
-    parser.add_argument("--anneal-steps", type=int, default=0,
-                        help="Steps for annealing phase (default: 0 = no annealing). "
-                             "Ignored for --start-mode native.")
+    parser.add_argument(
+        "--anneal-steps",
+        type=int,
+        default=0,
+        help="Steps for annealing phase (default: 0 = no annealing). " "Ignored for --start-mode native.",
+    )
     parser.add_argument("--beta-start", type=float, default=1.0, help="Starting beta for annealing")
     parser.add_argument("--beta-end", type=float, default=1000.0, help="End of annealing beta")
     parser.add_argument("--equil-beta", type=float, default=1000.0, help="Equilibration beta")
-    parser.add_argument("--multi-beta", type=float, nargs="+", default=None,
-                        help="Run separate trials at each beta (e.g., --multi-beta 100 500 1000 2000). "
-                             "Overrides --equil-beta and --n-trials.")
-    parser.add_argument("--step-size", type=float, default=1e-3,
-                        help="MALA/Langevin step size η (default: 1e-3). "
-                             "Target ~57%% acceptance. Increase for larger proteins.")
+    parser.add_argument(
+        "--multi-beta",
+        type=float,
+        nargs="+",
+        default=None,
+        help="Run separate trials at each beta (e.g., --multi-beta 100 500 1000 2000). "
+        "Overrides --equil-beta and --n-trials.",
+    )
+    parser.add_argument(
+        "--step-size",
+        type=float,
+        default=1e-3,
+        help="MALA/Langevin step size η (default: 1e-3). " "Target ~57%% acceptance. Increase for larger proteins.",
+    )
     parser.add_argument("--force-cap", type=float, default=100.0, help="Force clipping")
-    parser.add_argument("--start-mode", choices=["native", "extended", "random"], default="native",
-                        help="Initial conformation (default: native)")
-    parser.add_argument("--minimize", action="store_true", default=False,
-                        help="Energy-minimize the starting structure before dynamics. "
-                             "Puts the structure in the model's energy minimum.")
+    parser.add_argument(
+        "--start-mode",
+        choices=["native", "extended", "random"],
+        default="native",
+        help="Initial conformation (default: native)",
+    )
+    parser.add_argument(
+        "--minimize",
+        action="store_true",
+        default=False,
+        help="Energy-minimize the starting structure before dynamics. "
+        "Puts the structure in the model's energy minimum.",
+    )
     parser.add_argument("--log-every", type=int, default=10000, help="Log interval (steps)")
     parser.add_argument("--output-dir", type=str, default="results/model_test", help="Output directory")
     args = parser.parse_args()
@@ -348,14 +399,13 @@ def main():
     # exactly as training does. No manual JSON parsing, no silent fallbacks.
     print(f"Loading model from {args.model}")
     from calphaebm.evaluation.core_evaluation import load_model
+
     model = load_model(Path(args.model), device=torch.device("cpu"))
     model.eval()
 
-
     # Load native structure
     if args.pdb_id:
-        native_coords, seq_np, pdb_id, chain_id = get_native_structure(
-            args.pdb_id, args.cache_dir)
+        native_coords, seq_np, pdb_id, chain_id = get_native_structure(args.pdb_id, args.cache_dir)
     elif args.pdb_file:
         raise NotImplementedError("Direct PDB file loading not yet implemented")
     else:
@@ -366,6 +416,7 @@ def main():
 
     # Prepare reference data
     from calphaebm.evaluation.metrics import native_contact_set
+
     ni, nj, d0 = native_contact_set(native_coords)
     rg_native = float(np.sqrt(((native_coords - native_coords.mean(0)) ** 2).sum(1).mean()))
 
@@ -409,7 +460,9 @@ def main():
             seq_tensor=seq_tensor,
             R_native=R_native,
             native_np=native_coords,
-            ni=ni, nj=nj, d0=d0,
+            ni=ni,
+            nj=nj,
+            d0=d0,
             rg_native=rg_native,
             n_steps=args.n_steps,
             anneal_steps=args.anneal_steps,
@@ -435,8 +488,7 @@ def main():
         print(f"{'─'*66}")
         for r in results:
             status = "✓ STABLE" if r["stable"] else "✗ UNSTABLE"
-            print(f"  β={r['equil_beta']:<8.0f}  final_Q={r['final_q']:.3f}  "
-                  f"RMSD={r['final_rmsd']:.1f}  {status}")
+            print(f"  β={r['equil_beta']:<8.0f}  final_Q={r['final_q']:.3f}  " f"RMSD={r['final_rmsd']:.1f}  {status}")
         print(f"{'─'*66}")
         print(f"  Stable: {n_stable}/{len(results)}")
     else:

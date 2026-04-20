@@ -1,78 +1,79 @@
 # src/calphaebm/evaluation/metrics/rmsd.py
 """RMSD calculation with Kabsch alignment."""
 
-import numpy as np
 from typing import Tuple
+
+import numpy as np
 
 
 def kabsch_rotate(P: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Find optimal rotation aligning P onto Q after centering.
-    
+
     Args:
         P: (N, 3) source points.
         Q: (N, 3) target points.
-        
+
     Returns:
         (P_aligned, rotation_matrix) where P_aligned = (P - P_com) @ R
     """
     # Center
     P_centered = P - P.mean(axis=0)
     Q_centered = Q - Q.mean(axis=0)
-    
+
     # Covariance matrix
     C = P_centered.T @ Q_centered
-    
+
     # SVD
     V, _, Wt = np.linalg.svd(C)
-    
+
     # Ensure right-handed coordinate system
     d = np.sign(np.linalg.det(V @ Wt))
     D = np.diag([1.0, 1.0, d])
     R = V @ D @ Wt
-    
+
     P_aligned = P_centered @ R
     return P_aligned, R
 
 
 def rmsd_kabsch(P: np.ndarray, Q: np.ndarray) -> float:
     """Compute RMSD between two point sets after optimal alignment.
-    
+
     Args:
         P: (N, 3) source points.
         Q: (N, 3) target points.
-        
+
     Returns:
         RMSD value in same units as input.
     """
     if P.shape != Q.shape:
         raise ValueError(f"Shape mismatch: {P.shape} vs {Q.shape}")
-    
+
     if len(P) == 0:
         return 0.0
-    
+
     P_aligned, _ = kabsch_rotate(P, Q)
     Q_centered = Q - Q.mean(axis=0)
-    
+
     diff = P_aligned - Q_centered
     return float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
 
 
 def batch_rmsd(trajectory: np.ndarray, reference: np.ndarray) -> np.ndarray:
     """Compute RMSD for each frame in a trajectory.
-    
+
     Args:
         trajectory: (n_frames, N, 3) coordinates.
         reference: (N, 3) reference structure.
-        
+
     Returns:
         (n_frames,) RMSD values.
     """
     n_frames = trajectory.shape[0]
     rmsds = np.zeros(n_frames)
-    
+
     for i in range(n_frames):
         rmsds[i] = rmsd_kabsch(trajectory[i], reference)
-    
+
     return rmsds
 
 
@@ -82,64 +83,65 @@ def pairwise_distances(R: np.ndarray) -> np.ndarray:
     return np.sqrt((diff * diff).sum(axis=-1) + 1e-12)
 
 
-def drmsd(P: np.ndarray, Q: np.ndarray, mode: str = 'all', exclude: int = 2) -> float:
+def drmsd(P: np.ndarray, Q: np.ndarray, mode: str = "all", exclude: int = 2) -> float:
     """Compute distance RMSD between two structures.
-    
+
     Args:
         P: (N, 3) coordinates.
         Q: (N, 3) reference coordinates.
         mode: 'all' or 'nonlocal' - which pairs to include.
         exclude: Sequence separation for nonlocal mode.
-        
+
     Returns:
         dRMSD value.
     """
     if P.shape != Q.shape:
         raise ValueError(f"Shape mismatch: {P.shape} vs {Q.shape}")
-    
+
     N = P.shape[0]
     D_P = pairwise_distances(P)
     D_Q = pairwise_distances(Q)
-    
+
     # Create mask for pairs to include
     iu = np.triu_indices(N, k=1)
-    if mode == 'all':
+    if mode == "all":
         mask = np.ones(len(iu[0]), dtype=bool)
-    elif mode == 'nonlocal':
+    elif mode == "nonlocal":
         sep = np.abs(iu[0] - iu[1])
         mask = sep > exclude
     else:
         raise ValueError(f"Unknown mode: {mode}")
-    
+
     diff = (D_P[iu] - D_Q[iu])[mask]
     if len(diff) == 0:
         return 0.0
-    
+
     return float(np.sqrt(np.mean(diff * diff)))
 
 
-def batch_drmsd(trajectory: np.ndarray, reference: np.ndarray, mode: str = 'nonlocal', exclude: int = 2) -> np.ndarray:
+def batch_drmsd(trajectory: np.ndarray, reference: np.ndarray, mode: str = "nonlocal", exclude: int = 2) -> np.ndarray:
     """Compute dRMSD for each frame in a trajectory.
-    
+
     Args:
         trajectory: (n_frames, N, 3) coordinates.
         reference: (N, 3) reference structure.
         mode: 'all' or 'nonlocal' - which pairs to include.
         exclude: Sequence separation for nonlocal mode.
-        
+
     Returns:
         (n_frames,) dRMSD values.
     """
     n_frames = trajectory.shape[0]
     drmsds = np.zeros(n_frames)
-    
+
     for i in range(n_frames):
         drmsds[i] = drmsd(trajectory[i], reference, mode=mode, exclude=exclude)
-    
+
     return drmsds
 
 
 # ── k-nearest dRMSD (k64dRMSD) ──────────────────────────────────────────
+
 
 def _top_k_contacts(
     R_ref: np.ndarray,
@@ -253,7 +255,6 @@ def batch_k_drmsd(
     kdrmsds = np.zeros(n_frames)
 
     for i in range(n_frames):
-        kdrmsds[i] = k_drmsd(trajectory[i], reference, K=K, exclude=exclude,
-                             native_contacts=native_contacts)
+        kdrmsds[i] = k_drmsd(trajectory[i], reference, K=K, exclude=exclude, native_contacts=native_contacts)
 
     return kdrmsds

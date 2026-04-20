@@ -33,16 +33,16 @@ import torch
 from torch.utils.data import Dataset
 
 from calphaebm.data.pdb_parse import (
-    download_cif,
-    parse_cif_ca_chains,
-    split_chain_on_gaps,
-    validate_ca_geometry,
-    is_complete_chain,
-    passes_bfactor_filter,
-    count_protein_chains,
+    DEFAULT_MAX_HIGH_B_FRAC,
     DEFAULT_MAX_MEAN_BFACTOR,
     DEFAULT_MAX_RESIDUE_BFACTOR,
-    DEFAULT_MAX_HIGH_B_FRAC,
+    count_protein_chains,
+    download_cif,
+    is_complete_chain,
+    parse_cif_ca_chains,
+    passes_bfactor_filter,
+    split_chain_on_gaps,
+    validate_ca_geometry,
 )
 from calphaebm.utils.logging import get_logger
 
@@ -105,9 +105,7 @@ class PDBChainDataset(Dataset):
         pdb_ids_sorted = sorted(set(pdb_ids))
 
         # Cache key — includes all filter params
-        ids_hash = hashlib.sha256(
-            "\n".join(pdb_ids_sorted).encode()
-        ).hexdigest()[:12]
+        ids_hash = hashlib.sha256("\n".join(pdb_ids_sorted).encode()).hexdigest()[:12]
         rg_str = f"_Rg{max_rg_ratio:.2f}" if max_rg_ratio else ""
         mono_str = "_mono" if require_monomeric else ""
         complete_str = "_complete" if require_complete else ""
@@ -134,10 +132,17 @@ class PDBChainDataset(Dataset):
 
         if not loaded:
             self.chains = self._load_chains(
-                pdb_ids_sorted, cache_dir, min_len, max_len,
-                max_ca_jump, max_chains, max_rg_ratio,
-                require_monomeric, require_complete,
-                max_mean_bfactor, max_high_b_frac,
+                pdb_ids_sorted,
+                cache_dir,
+                min_len,
+                max_len,
+                max_ca_jump,
+                max_chains,
+                max_rg_ratio,
+                require_monomeric,
+                require_complete,
+                max_mean_bfactor,
+                max_high_b_frac,
             )
             if cache_processed and self.chains:
                 try:
@@ -148,12 +153,23 @@ class PDBChainDataset(Dataset):
 
         logger.info(
             "PDBChainDataset: %d clean chains (L=%d-%d) from %d PDB IDs",
-            len(self.chains), min_len, max_len, len(pdb_ids_sorted),
+            len(self.chains),
+            min_len,
+            max_len,
+            len(pdb_ids_sorted),
         )
 
     def _load_chains(
-        self, pdb_ids, cache_dir, min_len, max_len, max_ca_jump, max_chains,
-        max_rg_ratio=None, require_monomeric=True, require_complete=True,
+        self,
+        pdb_ids,
+        cache_dir,
+        min_len,
+        max_len,
+        max_ca_jump,
+        max_chains,
+        max_rg_ratio=None,
+        require_monomeric=True,
+        require_complete=True,
         max_mean_bfactor=DEFAULT_MAX_MEAN_BFACTOR,
         max_high_b_frac=DEFAULT_MAX_HIGH_B_FRAC,
     ) -> List[Dict[str, Any]]:
@@ -164,6 +180,7 @@ class PDBChainDataset(Dataset):
         _rg_func = None
         if max_rg_ratio is not None:
             from calphaebm.evaluation.metrics.rg import radius_of_gyration
+
             _rg_func = radius_of_gyration
 
         chains = []
@@ -172,12 +189,18 @@ class PDBChainDataset(Dataset):
 
         logger.info(
             "Loading full chains from %d PDB IDs (L=%d-%d) with strict filters:",
-            len(pdb_ids), min_len, max_len,
+            len(pdb_ids),
+            min_len,
+            max_len,
         )
-        logger.info("  monomeric=%s  complete=%s  max_mean_B=%.0f  max_high_B_frac=%.0f%%  max_rg=%.2f",
-                     require_monomeric, require_complete,
-                     max_mean_bfactor, max_high_b_frac * 100,
-                     max_rg_ratio if max_rg_ratio else 999)
+        logger.info(
+            "  monomeric=%s  complete=%s  max_mean_B=%.0f  max_high_B_frac=%.0f%%  max_rg=%.2f",
+            require_monomeric,
+            require_complete,
+            max_mean_bfactor,
+            max_high_b_frac * 100,
+            max_rg_ratio if max_rg_ratio else 999,
+        )
 
         for i, pid in enumerate(pdb_ids):
             if max_chains and len(chains) >= max_chains:
@@ -242,17 +265,19 @@ class PDBChainDataset(Dataset):
                 # Rg ratio filter
                 if _rg_func is not None:
                     rg = _rg_func(chain_ca.coords)
-                    rg_flory = 2.0 * L ** 0.38
+                    rg_flory = 2.0 * L**0.38
                     if rg / rg_flory > max_rg_ratio:
                         stats["rg_outlier"] += 1
                         continue
 
-                candidates_for_pid.append({
-                    "pdb_id": chain_ca.pdb_id,
-                    "chain_id": chain_ca.chain_id,
-                    "coords": chain_ca.coords.astype(np.float32),
-                    "seq": chain_ca.seq.astype(np.int64),
-                })
+                candidates_for_pid.append(
+                    {
+                        "pdb_id": chain_ca.pdb_id,
+                        "chain_id": chain_ca.chain_id,
+                        "coords": chain_ca.coords.astype(np.float32),
+                        "seq": chain_ca.seq.astype(np.int64),
+                    }
+                )
 
             # Keep only the longest chain per PDB
             if candidates_for_pid:
@@ -262,8 +287,7 @@ class PDBChainDataset(Dataset):
                 stats["skipped_dup_chains"] += len(candidates_for_pid) - 1
 
             if (i + 1) % 500 == 0:
-                logger.info("  Processed %d/%d IDs, %d chains accepted",
-                            i + 1, len(pdb_ids), len(chains))
+                logger.info("  Processed %d/%d IDs, %d chains accepted", i + 1, len(pdb_ids), len(chains))
 
         logger.info(
             "Chain loading complete:\n"
@@ -272,10 +296,15 @@ class PDBChainDataset(Dataset):
             "  rg_outlier=%d  bad_geometry=%d  too_short=%d  too_long=%d\n"
             "  download_fail=%d  parse_fail=%d  skipped_dup=%d",
             stats["accepted"],
-            stats["multi_chain"], stats["missing_residues"], stats["high_bfactor"],
-            stats["rg_outlier"], stats["bad_geometry"],
-            stats["too_short"], stats["too_long"],
-            stats["download_fail"], stats["parse_fail"],
+            stats["multi_chain"],
+            stats["missing_residues"],
+            stats["high_bfactor"],
+            stats["rg_outlier"],
+            stats["bad_geometry"],
+            stats["too_short"],
+            stats["too_long"],
+            stats["download_fail"],
+            stats["parse_fail"],
             stats["skipped_dup_chains"],
         )
         return chains
@@ -311,8 +340,7 @@ class PDBChainDataset(Dataset):
         if len(batch) == 1:
             coords, seq, pdb_id, chain_id = batch[0]
             lengths = torch.tensor([coords.shape[0]], dtype=torch.long)
-            return (coords.unsqueeze(0), seq.unsqueeze(0),
-                    [pdb_id], [chain_id], lengths)
+            return (coords.unsqueeze(0), seq.unsqueeze(0), [pdb_id], [chain_id], lengths)
 
         max_len = max(coords.shape[0] for coords, _, _, _ in batch)
         B = len(batch)
@@ -331,5 +359,4 @@ class PDBChainDataset(Dataset):
             pdb_ids.append(pid)
             chain_ids.append(cid)
 
-        return (coords_padded, seq_padded, pdb_ids, chain_ids,
-                torch.tensor(lengths, dtype=torch.long))
+        return (coords_padded, seq_padded, pdb_ids, chain_ids, torch.tensor(lengths, dtype=torch.long))

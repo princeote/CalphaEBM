@@ -28,7 +28,7 @@ def add_parser(subparsers):
         type=int,
         default=15000,
         help="Target number of entities (default: 15000). Oversample to "
-             "account for downstream quality filters (~50%% attrition).",
+        "account for downstream quality filters (~50%% attrition).",
     )
 
     parser.add_argument(
@@ -78,7 +78,7 @@ def add_parser(subparsers):
         nargs="+",
         default=["X-RAY DIFFRACTION", "ELECTRON MICROSCOPY"],
         help="Experimental methods to include (default: X-ray + cryo-EM). "
-             "Use 'X-RAY DIFFRACTION' and/or 'ELECTRON MICROSCOPY'.",
+        "Use 'X-RAY DIFFRACTION' and/or 'ELECTRON MICROSCOPY'.",
     )
 
     parser.set_defaults(func=run)

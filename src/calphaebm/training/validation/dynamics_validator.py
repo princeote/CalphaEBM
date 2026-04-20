@@ -20,15 +20,17 @@ Usage in training loop:
 from __future__ import annotations
 
 import math
+
 import numpy as np
 import torch
 
-from .base import BaseValidator
-from calphaebm.simulation.backends.langevin import ICLangevinSimulator
-from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch, kabsch_rotate
 from calphaebm.evaluation.metrics.contacts import native_contact_set, q_smooth
+from calphaebm.evaluation.metrics.rmsd import kabsch_rotate, rmsd_kabsch
 from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
+from calphaebm.simulation.backends.langevin import ICLangevinSimulator
 from calphaebm.utils.logging import get_logger
+
+from .base import BaseValidator
 
 logger = get_logger()
 
@@ -145,8 +147,12 @@ class DynamicsValidator(BaseValidator):
         if self.minimize_steps > 0:
             try:
                 sim_min = ICLangevinSimulator(
-                    model=self.model, seq=seq, R_init=R_min,
-                    step_size=self.step_size, beta=1e6, force_cap=self.force_cap,
+                    model=self.model,
+                    seq=seq,
+                    R_init=R_min,
+                    step_size=self.step_size,
+                    beta=1e6,
+                    force_cap=self.force_cap,
                     lengths=lengths,
                 )
                 for _ in range(self.minimize_steps):
@@ -175,8 +181,12 @@ class DynamicsValidator(BaseValidator):
         # Langevin dynamics
         try:
             sim = ICLangevinSimulator(
-                model=self.model, seq=seq, R_init=R_min,
-                step_size=self.step_size, beta=self.beta, force_cap=self.force_cap,
+                model=self.model,
+                seq=seq,
+                R_init=R_min,
+                step_size=self.step_size,
+                beta=self.beta,
+                force_cap=self.force_cap,
                 lengths=lengths,
             )
             R_current = R_min.detach()
@@ -253,8 +263,10 @@ class DynamicsValidator(BaseValidator):
 
         for struct in self.structures:
             r = self._run_one(
-                struct["coords"], struct["seq"],
-                struct.get("pdb_id", "?"), struct.get("chain_id", "?"),
+                struct["coords"],
+                struct["seq"],
+                struct.get("pdb_id", "?"),
+                struct.get("chain_id", "?"),
             )
             if r is not None:
                 results.append(r)
@@ -288,12 +300,18 @@ class DynamicsValidator(BaseValidator):
         frac_str = "  ".join(f"{k}={100*v:.0f}%" for k, v in mean_fracs.items())
 
         logger.info(
-            "[dynamics β=%g step=%s] RMSD=%.2f  Q=%.3f  RMSF=%.2f  "
-            "Rg=%.1f/%.1f(%.0f%%)  E_delta=%+.3f  [%s]  %s",
-            self.beta, step if step is not None else "?",
-            mean_rmsd, mean_q, mean_rmsf,
-            mean_rg, mean_rg_native, 100 * mean_rg_ratio,
-            mean_edelta, stable_str, frac_str,
+            "[dynamics β=%g step=%s] RMSD=%.2f  Q=%.3f  RMSF=%.2f  " "Rg=%.1f/%.1f(%.0f%%)  E_delta=%+.3f  [%s]  %s",
+            self.beta,
+            step if step is not None else "?",
+            mean_rmsd,
+            mean_q,
+            mean_rmsf,
+            mean_rg,
+            mean_rg_native,
+            100 * mean_rg_ratio,
+            mean_edelta,
+            stable_str,
+            frac_str,
         )
 
         # Per-structure detail (compact)
@@ -301,10 +319,16 @@ class DynamicsValidator(BaseValidator):
             status = "ok" if r["E_delta"] < 0 else "BAD"
             logger.info(
                 "  %s/%s L=%d: RMSD=%.2f Q=%.3f RMSF=%.2f Rg=%.1f(%.0f%%) E_delta=%+.3f [%s]",
-                r["pdb_id"], r["chain_id"], r["L"],
-                r["rmsd"], r["q"], r["mean_rmsf"],
-                r["rg"], 100 * r["rg_ratio"],
-                r["E_delta"], status,
+                r["pdb_id"],
+                r["chain_id"],
+                r["L"],
+                r["rmsd"],
+                r["q"],
+                r["mean_rmsf"],
+                r["rg"],
+                100 * r["rg_ratio"],
+                r["E_delta"],
+                status,
             )
 
         # Trajectory trend (first structure only, compact)
@@ -320,7 +344,12 @@ class DynamicsValidator(BaseValidator):
             growing = "↑growing" if rmsd_late > rmsd_mid * 1.05 else "→plateau"
             logger.info(
                 "  trajectory(%s): RMSD %.1f→%.1f→%.1f %s  Rg_late=%.1f",
-                r0["pdb_id"], rmsd_early, rmsd_mid, rmsd_late, growing, rg_late,
+                r0["pdb_id"],
+                rmsd_early,
+                rmsd_mid,
+                rmsd_late,
+                growing,
+                rg_late,
             )
 
         metrics = {
@@ -380,12 +409,14 @@ class DynamicsValidator(BaseValidator):
         structures = []
         for i in range(len(dataset)):
             coords, seq, pdb_id, chain_id = dataset[i]
-            structures.append({
-                "pdb_id": pdb_id,
-                "chain_id": chain_id,
-                "coords": coords.numpy(),
-                "seq": seq.numpy(),
-            })
+            structures.append(
+                {
+                    "pdb_id": pdb_id,
+                    "chain_id": chain_id,
+                    "coords": coords.numpy(),
+                    "seq": seq.numpy(),
+                }
+            )
 
         if not structures:
             logger.warning("DynamicsValidator: no structures loaded from %s", pdb_ids)

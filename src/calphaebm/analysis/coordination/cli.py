@@ -65,17 +65,49 @@ logger = get_logger()
 # ---------------------------------------------------------------------------
 
 AA_ORDER = [
-    "ALA", "CYS", "ASP", "GLU", "PHE",
-    "GLY", "HIS", "ILE", "LYS", "LEU",
-    "MET", "ASN", "PRO", "GLN", "ARG",
-    "SER", "THR", "VAL", "TRP", "TYR",
+    "ALA",
+    "CYS",
+    "ASP",
+    "GLU",
+    "PHE",
+    "GLY",
+    "HIS",
+    "ILE",
+    "LYS",
+    "LEU",
+    "MET",
+    "ASN",
+    "PRO",
+    "GLN",
+    "ARG",
+    "SER",
+    "THR",
+    "VAL",
+    "TRP",
+    "TYR",
 ]
 
 AA3_TO_1 = {
-    "ALA": "A", "CYS": "C", "ASP": "D", "GLU": "E", "PHE": "F",
-    "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
-    "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
-    "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
+    "ALA": "A",
+    "CYS": "C",
+    "ASP": "D",
+    "GLU": "E",
+    "PHE": "F",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LYS": "K",
+    "LEU": "L",
+    "MET": "M",
+    "ASN": "N",
+    "PRO": "P",
+    "GLN": "Q",
+    "ARG": "R",
+    "SER": "S",
+    "THR": "T",
+    "VAL": "V",
+    "TRP": "W",
+    "TYR": "Y",
 }
 
 NUM_AA = 20
@@ -96,11 +128,11 @@ NUM_AA = 20
 # AA index order matches AA_ORDER above.
 
 GROUP_NAMES = [
-    "core_hydrophobic",       # 0
-    "amphipathic_hydrophobic",# 1
-    "positive",               # 2
-    "negative",               # 3
-    "polar",                  # 4
+    "core_hydrophobic",  # 0
+    "amphipathic_hydrophobic",  # 1
+    "positive",  # 2
+    "negative",  # 3
+    "polar",  # 4
 ]
 NUM_GROUPS = 5
 
@@ -148,15 +180,16 @@ GROUP_MEMBERS: dict[int, list[str]] = {
 # Cα adaptation: cutoff=8.0Å, β=5.0 Å⁻¹, λ=1.8
 # Sigmoid form: σ(d) = 1 / (1 + exp(β * (d - r_cut)))
 #   equivalent to: 1 / (1 + exp((d - r_cut) / τ))  with τ = 1/β = 0.2
-BEST_R_HALF = 8.0    # Å — Cα contact midpoint
-BEST_TAU = 0.2       # Å — steepness (= 1/β, β=5.0 Å⁻¹)
-BEST_EXCLUDE = 3     # |i-j| > 3
-BEST_MAX_DIST = 12.0 # Å — hard cutoff for efficiency
+BEST_R_HALF = 8.0  # Å — Cα contact midpoint
+BEST_TAU = 0.2  # Å — steepness (= 1/β, β=5.0 Å⁻¹)
+BEST_EXCLUDE = 3  # |i-j| > 3
+BEST_MAX_DIST = 12.0  # Å — hard cutoff for efficiency
 
 
 # ---------------------------------------------------------------------------
 # Core computation
 # ---------------------------------------------------------------------------
+
 
 def compute_soft_coordination(
     coords: np.ndarray,
@@ -183,7 +216,7 @@ def compute_soft_coordination(
 
     # Pairwise distances
     diff = coords[:, None, :] - coords[None, :, :]
-    dist = np.sqrt((diff ** 2).sum(axis=-1))
+    dist = np.sqrt((diff**2).sum(axis=-1))
 
     # Sequence separation mask: |i-j| > exclude, i != j
     idx = np.arange(L)
@@ -196,7 +229,7 @@ def compute_soft_coordination(
 
     # Soft sigmoid counting: sigmoid((r_half - r) / tau)
     r_clipped = np.clip(dist, 0, max_dist)
-    with np.errstate(over='ignore'):
+    with np.errstate(over="ignore"):
         g = 1.0 / (1.0 + np.exp((r_clipped - r_half) / tau))
     g = g * allowed.astype(np.float64)
 
@@ -251,36 +284,38 @@ def compute_grouped_coordination(
 
     # Full pairwise distances — same computation as compute_soft_coordination
     diff = coords[:, None, :] - coords[None, :, :]
-    dist = np.sqrt((diff ** 2).sum(axis=-1))   # (L, L)
+    dist = np.sqrt((diff**2).sum(axis=-1))  # (L, L)
 
     idx = np.arange(L)
     seq_sep = np.abs(idx[:, None] - idx[None, :])
-    allowed = (seq_sep > exclude)
+    allowed = seq_sep > exclude
     np.fill_diagonal(allowed, False)
     allowed = allowed & (dist <= max_dist)
 
     r_clipped = np.clip(dist, 0.0, max_dist)
-    with np.errstate(over='ignore'):
+    with np.errstate(over="ignore"):
         g = 1.0 / (1.0 + np.exp((r_clipped - r_half) / tau))  # (L, L)
     g = g * allowed.astype(np.float64)
 
     # Group index for each residue j: (L,) integer array
     group_ids = np.array(
-        [group_assignment[int(seq[j])] if 0 <= int(seq[j]) < len(group_assignment)
-         else (n_groups - 1) for j in range(L)],
+        [
+            group_assignment[int(seq[j])] if 0 <= int(seq[j]) < len(group_assignment) else (n_groups - 1)
+            for j in range(L)
+        ],
         dtype=np.int32,
     )
 
     # n_i^(k) = sum_j [ g(r_ij) * (group_j == k) ]
     # Vectorised: build a (L, n_groups) boolean membership matrix, then
     # contract with g over the j axis.
-    membership = (group_ids[None, :] == np.arange(n_groups)[:, None, None])
+    membership = group_ids[None, :] == np.arange(n_groups)[:, None, None]
     # membership: (n_groups, 1, L)  — broadcasts against g (L, L)
     # Reshape for efficient einsum: group_mask (L, n_groups)
-    group_mask = (group_ids[:, None] == np.arange(n_groups)[None, :])  # (L, n_groups)
+    group_mask = group_ids[:, None] == np.arange(n_groups)[None, :]  # (L, n_groups)
 
     # n_grouped[i, k] = Σ_j g[i,j] * group_mask[j, k]
-    n_grouped = g @ group_mask.astype(np.float64)   # (L, L) @ (L, n_groups) -> (L, n_groups)
+    n_grouped = g @ group_mask.astype(np.float64)  # (L, L) @ (L, n_groups) -> (L, n_groups)
 
     return n_grouped
 
@@ -289,9 +324,12 @@ def compute_grouped_coordination(
 # ρ*(L) curve fitting
 # ---------------------------------------------------------------------------
 
-def fit_rho_curve(lengths: np.ndarray, rhos: np.ndarray,
-                  bins: list[tuple[int, int]] | None = None,
-                  ) -> dict:
+
+def fit_rho_curve(
+    lengths: np.ndarray,
+    rhos: np.ndarray,
+    bins: list[tuple[int, int]] | None = None,
+) -> dict:
     """Fit ρ*(L) = a - b * exp(-L/c) to binned data.
 
     Args:
@@ -302,13 +340,21 @@ def fit_rho_curve(lengths: np.ndarray, rhos: np.ndarray,
     Returns:
         dict with fit parameters and bin statistics.
     """
-    from scipy.optimize import curve_fit
     from scipy import stats as sp_stats
+    from scipy.optimize import curve_fit
 
     if bins is None:
         bins = [
-            (5, 20), (20, 40), (40, 60), (60, 80), (80, 100),
-            (100, 150), (150, 200), (200, 300), (300, 500), (500, 1000),
+            (5, 20),
+            (20, 40),
+            (40, 60),
+            (60, 80),
+            (80, 100),
+            (100, 150),
+            (150, 200),
+            (200, 300),
+            (300, 500),
+            (500, 1000),
         ]
 
     # Bin statistics
@@ -324,16 +370,18 @@ def fit_rho_curve(lengths: np.ndarray, rhos: np.ndarray,
             continue
         r = rhos[mask]
         mid = (lo + hi) / 2.0
-        bin_stats.append({
-            "range": f"{lo}-{hi}",
-            "n": int(n),
-            "mean": round(float(r.mean()), 4),
-            "std": round(float(r.std()), 4),
-            "p5": round(float(np.percentile(r, 5)), 4),
-            "p25": round(float(np.percentile(r, 25)), 4),
-            "p75": round(float(np.percentile(r, 75)), 4),
-            "p95": round(float(np.percentile(r, 95)), 4),
-        })
+        bin_stats.append(
+            {
+                "range": f"{lo}-{hi}",
+                "n": int(n),
+                "mean": round(float(r.mean()), 4),
+                "std": round(float(r.std()), 4),
+                "p5": round(float(np.percentile(r, 5)), 4),
+                "p25": round(float(np.percentile(r, 25)), 4),
+                "p75": round(float(np.percentile(r, 75)), 4),
+                "p95": round(float(np.percentile(r, 95)), 4),
+            }
+        )
         bin_L.append(mid)
         bin_rho.append(float(r.mean()))
         bin_weight.append(n)
@@ -348,7 +396,9 @@ def fit_rho_curve(lengths: np.ndarray, rhos: np.ndarray,
 
     try:
         popt, pcov = curve_fit(
-            model, bin_L, bin_rho,
+            model,
+            bin_L,
+            bin_rho,
             p0=[2.7, 1.5, 80],
             sigma=1.0 / np.sqrt(bin_weight),
         )
@@ -385,10 +435,12 @@ def fit_rho_curve(lengths: np.ndarray, rhos: np.ndarray,
 # Plotting
 # ---------------------------------------------------------------------------
 
+
 def _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir):
     """Plot per-AA coordination distributions with Gaussian overlay + KS test."""
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from scipy import stats as sp_stats
@@ -400,7 +452,8 @@ def _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir):
     fig.suptitle(
         "Per-AA Coordination Number Distributions\n"
         "Histogram (PDB data) vs Gaussian fit (used in _Hydrophobic energy)",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
 
     for aa_idx, aa in enumerate(AA_ORDER):
@@ -416,13 +469,18 @@ def _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir):
 
         bins = np.linspace(0, max(arr.max(), 10), 50)
         ax.hist(
-            arr, bins=bins, density=True, alpha=0.6,
-            color="steelblue", edgecolor="white", linewidth=0.5,
+            arr,
+            bins=bins,
+            density=True,
+            alpha=0.6,
+            color="steelblue",
+            edgecolor="white",
+            linewidth=0.5,
             label=f"PDB (n={len(vals):,})",
         )
 
         x = np.linspace(0, max(arr.max(), 10), 200)
-        gaussian = np.exp(-((x - mu) ** 2) / (2 * sigma ** 2)) / (sigma * np.sqrt(2 * np.pi))
+        gaussian = np.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))
         ax.plot(x, gaussian, "r-", linewidth=2, label=f"Gaussian(μ={mu:.1f}, σ={sigma:.2f})")
 
         ks_stat, ks_pval = sp_stats.kstest(arr, "norm", args=(mu, sigma))
@@ -450,12 +508,31 @@ def _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir):
     fig2.suptitle(
         "Coordination-Based Packing Energy Wells\n"
         "E_hp(n_i) = -w · exp(-(n_i - n*)² / 2σ²)  — energy minimum at native coordination",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
 
     kd_raw = [
-        +1.8, +2.5, -3.5, -3.5, +2.8, -0.4, -3.2, +4.5, -3.9, +3.8,
-        +1.9, -3.5, -1.6, -3.5, -4.5, -0.8, -0.7, +4.2, -0.9, -1.3,
+        +1.8,
+        +2.5,
+        -3.5,
+        -3.5,
+        +2.8,
+        -0.4,
+        -3.2,
+        +4.5,
+        -3.9,
+        +3.8,
+        +1.9,
+        -3.5,
+        -1.6,
+        -3.5,
+        -4.5,
+        -0.8,
+        -0.7,
+        +4.2,
+        -0.9,
+        -1.3,
     ]
     kd_min, kd_max = min(kd_raw), max(kd_raw)
     kd_norm = [0.1 + 0.9 * (v - kd_min) / (kd_max - kd_min) for v in kd_raw]
@@ -468,7 +545,7 @@ def _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir):
         w = w_init[aa_idx]
 
         x = np.linspace(0, 10, 200)
-        gaussian = np.exp(-((x - mu) ** 2) / (2 * sigma ** 2))
+        gaussian = np.exp(-((x - mu) ** 2) / (2 * sigma**2))
         E_well = -w * gaussian
 
         ax.plot(x, E_well, "b-", linewidth=2)
@@ -496,6 +573,7 @@ def _plot_rho(chain_data, rho_fit, out_dir):
     """Plot ρ vs L scatter with fitted curve and histograms."""
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -516,16 +594,22 @@ def _plot_rho(chain_data, rho_fit, out_dir):
     c = rho_fit["fit_c"]
     L_fit = np.linspace(5, max(lengths) * 1.05, 200)
     rho_curve = a - b * np.exp(-L_fit / c)
-    ax.plot(L_fit, rho_curve, "r-", linewidth=2,
-            label=f"ρ*(L) = {a:.2f} - {b:.2f}·exp(-L/{c:.0f})")
+    ax.plot(L_fit, rho_curve, "r-", linewidth=2, label=f"ρ*(L) = {a:.2f} - {b:.2f}·exp(-L/{c:.0f})")
 
     # p5/p95 by bin
     for bs in rho_fit["bins"]:
         rng = bs["range"]
         lo, hi = rng.split("-")
         mid = (int(lo) + int(hi)) / 2
-        ax.errorbar(mid, bs["mean"], yerr=[[bs["mean"] - bs["p5"]], [bs["p95"] - bs["mean"]]],
-                     fmt="ko", markersize=4, capsize=3, linewidth=1)
+        ax.errorbar(
+            mid,
+            bs["mean"],
+            yerr=[[bs["mean"] - bs["p5"]], [bs["p95"] - bs["mean"]]],
+            fmt="ko",
+            markersize=4,
+            capsize=3,
+            linewidth=1,
+        )
 
     ax.set_xlabel("Chain length L", fontsize=11)
     ax.set_ylabel("Contact density ρ (per residue)", fontsize=11)
@@ -535,14 +619,14 @@ def _plot_rho(chain_data, rho_fit, out_dir):
 
     # 2. Global ρ histogram
     ax = axes[1]
-    ax.hist(rhos, bins=60, density=True, alpha=0.7, color="steelblue",
-            edgecolor="white", linewidth=0.5)
-    ax.axvline(rho_fit["global_mean"], color="red", linestyle="--", linewidth=1.5,
-               label=f"mean={rho_fit['global_mean']:.3f}")
-    ax.axvline(rho_fit["global_p5"], color="orange", linestyle=":", linewidth=1,
-               label=f"p5={rho_fit['global_p5']:.3f}")
-    ax.axvline(rho_fit["global_p95"], color="orange", linestyle=":", linewidth=1,
-               label=f"p95={rho_fit['global_p95']:.3f}")
+    ax.hist(rhos, bins=60, density=True, alpha=0.7, color="steelblue", edgecolor="white", linewidth=0.5)
+    ax.axvline(
+        rho_fit["global_mean"], color="red", linestyle="--", linewidth=1.5, label=f"mean={rho_fit['global_mean']:.3f}"
+    )
+    ax.axvline(rho_fit["global_p5"], color="orange", linestyle=":", linewidth=1, label=f"p5={rho_fit['global_p5']:.3f}")
+    ax.axvline(
+        rho_fit["global_p95"], color="orange", linestyle=":", linewidth=1, label=f"p95={rho_fit['global_p95']:.3f}"
+    )
     ax.set_xlabel("Contact density ρ", fontsize=11)
     ax.set_ylabel("Density", fontsize=11)
     ax.set_title("Global ρ distribution", fontsize=12)
@@ -562,10 +646,15 @@ def _plot_rho(chain_data, rho_fit, out_dir):
 
     x_pos = np.arange(len(bin_labels))
     ax.bar(x_pos, bin_means, color="steelblue", alpha=0.7, edgecolor="white")
-    ax.errorbar(x_pos, bin_means,
-                yerr=[np.array(bin_means) - np.array(bin_p5),
-                      np.array(bin_p95) - np.array(bin_means)],
-                fmt="none", capsize=4, color="black", linewidth=1)
+    ax.errorbar(
+        x_pos,
+        bin_means,
+        yerr=[np.array(bin_means) - np.array(bin_p5), np.array(bin_p95) - np.array(bin_means)],
+        fmt="none",
+        capsize=4,
+        color="black",
+        linewidth=1,
+    )
     ax.set_xticks(x_pos)
     ax.set_xticklabels(bin_labels, rotation=45, ha="right", fontsize=8)
     ax.set_xlabel("Length bin", fontsize=11)
@@ -603,6 +692,7 @@ def _plot_group_distributions(
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from scipy import stats as sp_stats
@@ -633,7 +723,8 @@ def _plot_group_distributions(
         fig.suptitle(
             f"n_i^({k}) Distributions — {group_titles[k]}\n"
             f"Histogram (PDB) vs Gaussian fit (used in E_hp product Gaussian)",
-            fontsize=13, fontweight="bold",
+            fontsize=13,
+            fontweight="bold",
         )
 
         for aa_idx, aa in enumerate(AA_ORDER):
@@ -647,33 +738,39 @@ def _plot_group_distributions(
                 continue
 
             arr = np.array(vals)
-            mu    = n_group_mean_list[aa_idx][k]
+            mu = n_group_mean_list[aa_idx][k]
             sigma = n_group_std_list[aa_idx][k]
             sigma_plot = max(sigma, 0.1)  # for display only
 
             # histogram
             x_max = max(arr.max() * 1.05, mu + 3 * sigma_plot, 3.0)
-            bins  = np.linspace(0, x_max, 50)
-            ax.hist(arr, bins=bins, density=True, alpha=0.55,
-                    color=group_colors[k], edgecolor="white", linewidth=0.4,
-                    label=f"PDB (n={len(vals):,})")
+            bins = np.linspace(0, x_max, 50)
+            ax.hist(
+                arr,
+                bins=bins,
+                density=True,
+                alpha=0.55,
+                color=group_colors[k],
+                edgecolor="white",
+                linewidth=0.4,
+                label=f"PDB (n={len(vals):,})",
+            )
 
             # Gaussian overlay
             x = np.linspace(0, x_max, 300)
-            gauss = np.exp(-((x - mu) ** 2) / (2 * sigma_plot ** 2))
-            gauss /= (sigma_plot * np.sqrt(2 * np.pi))
-            ax.plot(x, gauss, color="black", linewidth=1.8,
-                    label=f"N(μ={mu:.2f}, σ={sigma:.2f})")
+            gauss = np.exp(-((x - mu) ** 2) / (2 * sigma_plot**2))
+            gauss /= sigma_plot * np.sqrt(2 * np.pi)
+            ax.plot(x, gauss, color="black", linewidth=1.8, label=f"N(μ={mu:.2f}, σ={sigma:.2f})")
 
             # mean and ±1σ
-            ax.axvline(mu,          color="black", linestyle="--", alpha=0.8, linewidth=1.0)
-            ax.axvline(mu - sigma_plot, color="black", linestyle=":",  alpha=0.4, linewidth=0.8)
-            ax.axvline(mu + sigma_plot, color="black", linestyle=":",  alpha=0.4, linewidth=0.8)
+            ax.axvline(mu, color="black", linestyle="--", alpha=0.8, linewidth=1.0)
+            ax.axvline(mu - sigma_plot, color="black", linestyle=":", alpha=0.4, linewidth=0.8)
+            ax.axvline(mu + sigma_plot, color="black", linestyle=":", alpha=0.4, linewidth=0.8)
 
             # p5/p95 from data
-            p5  = np.percentile(arr, 5)
+            p5 = np.percentile(arr, 5)
             p95 = np.percentile(arr, 95)
-            ax.axvline(p5,  color="orange", linestyle="-.", alpha=0.7, linewidth=0.8)
+            ax.axvline(p5, color="orange", linestyle="-.", alpha=0.7, linewidth=0.8)
             ax.axvline(p95, color="orange", linestyle="-.", alpha=0.7, linewidth=0.8)
 
             # KS test
@@ -713,6 +810,7 @@ def _plot_rho_group(chain_data: list, rho_group_fits: list, out_dir) -> None:
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -728,45 +826,51 @@ def _plot_rho_group(chain_data: list, rho_group_fits: list, out_dir) -> None:
     ]
     group_colors = ["#2166ac", "#d6604d", "#4dac26", "#7b3294", "#e08214"]
 
-    lengths = np.array([d["L"]   for d in chain_data])
-    rhos_g  = np.array([d["rho_grouped"] for d in chain_data])  # (N, 5)
+    lengths = np.array([d["L"] for d in chain_data])
+    rhos_g = np.array([d["rho_grouped"] for d in chain_data])  # (N, 5)
 
     out_dir = Path(out_dir)
     fig, axes = plt.subplots(NUM_GROUPS, 3, figsize=(18, 5 * NUM_GROUPS))
     fig.suptitle(
         "Per-group contact density  ρ^(k) = (1/L) Σ_i n_i^(k)\n"
         "5-group scheme: scatter vs L, global histogram, by-length bar chart",
-        fontsize=13, fontweight="bold",
+        fontsize=13,
+        fontweight="bold",
     )
 
     for k in range(NUM_GROUPS):
         rhos_k = rhos_g[:, k]
-        fit    = rho_group_fits[k]
+        fit = rho_group_fits[k]
         a, b, c = fit["fit_a"], fit["fit_b"], fit["fit_c"]
-        color  = group_colors[k]
-        label  = group_labels[k]
+        color = group_colors[k]
+        label = group_labels[k]
 
         # ── Col 0: scatter + fitted curve ──────────────────────────────
         ax0 = axes[k, 0]
         ax0.scatter(lengths, rhos_k, s=3, alpha=0.25, color=color, rasterized=True)
-        L_fit   = np.linspace(5, max(lengths) * 1.05, 300)
+        L_fit = np.linspace(5, max(lengths) * 1.05, 300)
         rho_fit = a - b * np.exp(-L_fit / c)
-        ax0.plot(L_fit, rho_fit, "k-", linewidth=2,
-                 label=f"ρ*(L)={a:.3f}-{b:.3f}·e^(-L/{c:.0f})")
+        ax0.plot(L_fit, rho_fit, "k-", linewidth=2, label=f"ρ*(L)={a:.3f}-{b:.3f}·e^(-L/{c:.0f})")
 
         # p5/p95 by length bin
-        bins_def = [(40,60),(60,80),(80,100),(100,150),(150,200),(200,300),(300,500)]
+        bins_def = [(40, 60), (60, 80), (80, 100), (100, 150), (150, 200), (200, 300), (300, 500)]
         for lo, hi in bins_def:
             mask = (lengths >= lo) & (lengths < hi)
             if mask.sum() < 3:
                 continue
             mid = (lo + hi) / 2
-            r   = rhos_k[mask]
-            ax0.errorbar(mid, r.mean(),
-                         yerr=[[r.mean()-np.percentile(r,5)],
-                                [np.percentile(r,95)-r.mean()]],
-                         fmt="o", color="black", markersize=3,
-                         capsize=3, linewidth=0.8, alpha=0.8)
+            r = rhos_k[mask]
+            ax0.errorbar(
+                mid,
+                r.mean(),
+                yerr=[[r.mean() - np.percentile(r, 5)], [np.percentile(r, 95) - r.mean()]],
+                fmt="o",
+                color="black",
+                markersize=3,
+                capsize=3,
+                linewidth=0.8,
+                alpha=0.8,
+            )
 
         ax0.set_xlabel("Chain length L", fontsize=9)
         ax0.set_ylabel(f"ρ^({k})", fontsize=9)
@@ -776,23 +880,19 @@ def _plot_rho_group(chain_data: list, rho_group_fits: list, out_dir) -> None:
 
         # ── Col 1: global histogram ──────────────────────────────────
         ax1 = axes[k, 1]
-        ax1.hist(rhos_k, bins=50, density=True, alpha=0.65,
-                 color=color, edgecolor="white", linewidth=0.3)
-        m_k   = rhos_k.mean()
+        ax1.hist(rhos_k, bins=50, density=True, alpha=0.65, color=color, edgecolor="white", linewidth=0.3)
+        m_k = rhos_k.mean()
         std_k = rhos_k.std()
-        p5_k  = np.percentile(rhos_k, 5)
+        p5_k = np.percentile(rhos_k, 5)
         p95_k = np.percentile(rhos_k, 95)
 
         # Gaussian overlay on ρ distribution
-        x = np.linspace(max(0, m_k - 4*std_k), m_k + 4*std_k, 200)
-        gauss = np.exp(-((x - m_k)**2)/(2*std_k**2)) / (std_k*np.sqrt(2*np.pi))
+        x = np.linspace(max(0, m_k - 4 * std_k), m_k + 4 * std_k, 200)
+        gauss = np.exp(-((x - m_k) ** 2) / (2 * std_k**2)) / (std_k * np.sqrt(2 * np.pi))
         ax1.plot(x, gauss, "k-", linewidth=1.5, label=f"N(μ={m_k:.3f}, σ={std_k:.3f})")
-        ax1.axvline(m_k,  color="black", linestyle="--", linewidth=1.0,
-                    label=f"mean={m_k:.3f}")
-        ax1.axvline(p5_k, color="orange", linestyle=":", linewidth=1.0,
-                    label=f"p5={p5_k:.3f}")
-        ax1.axvline(p95_k,color="orange", linestyle=":", linewidth=1.0,
-                    label=f"p95={p95_k:.3f}")
+        ax1.axvline(m_k, color="black", linestyle="--", linewidth=1.0, label=f"mean={m_k:.3f}")
+        ax1.axvline(p5_k, color="orange", linestyle=":", linewidth=1.0, label=f"p5={p5_k:.3f}")
+        ax1.axvline(p95_k, color="orange", linestyle=":", linewidth=1.0, label=f"p95={p95_k:.3f}")
         ax1.set_xlabel(f"ρ^({k})", fontsize=9)
         ax1.set_ylabel("density", fontsize=9)
         ax1.set_title(f"k={k}: global ρ^({k}) distribution", fontsize=9)
@@ -810,10 +910,18 @@ def _plot_rho_group(chain_data: list, rho_group_fits: list, out_dir) -> None:
         if bin_means_plot:
             x_pos = np.arange(len(bin_labels_plot))
             ax2.bar(x_pos, bin_means_plot, color=color, alpha=0.7, edgecolor="white")
-            ax2.errorbar(x_pos, bin_means_plot,
-                         yerr=[np.array(bin_means_plot) - np.array(bin_p5_plot),
-                                np.array(bin_p95_plot)  - np.array(bin_means_plot)],
-                         fmt="none", capsize=3, color="black", linewidth=0.8)
+            ax2.errorbar(
+                x_pos,
+                bin_means_plot,
+                yerr=[
+                    np.array(bin_means_plot) - np.array(bin_p5_plot),
+                    np.array(bin_p95_plot) - np.array(bin_means_plot),
+                ],
+                fmt="none",
+                capsize=3,
+                color="black",
+                linewidth=0.8,
+            )
             ax2.set_xticks(x_pos)
             ax2.set_xticklabels(bin_labels_plot, rotation=45, ha="right", fontsize=7)
 
@@ -832,6 +940,7 @@ def _plot_rho_group(chain_data: list, rho_group_fits: list, out_dir) -> None:
 # CLI registration
 # ---------------------------------------------------------------------------
 
+
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     """Register ``coordination`` subcommand under ``calphaebm analyze``."""
     p = subparsers.add_parser(
@@ -846,70 +955,100 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--pdb-list", type=str, required=True,
+        "--pdb-list",
+        type=str,
+        required=True,
         help="File containing PDB IDs, one per line (e.g. train_hq.txt)",
     )
     p.add_argument(
-        "--cache-dir", type=str, default="pdb_cache",
+        "--cache-dir",
+        type=str,
+        default="pdb_cache",
         help="Directory for mmCIF files (default: pdb_cache)",
     )
     p.add_argument(
-        "--output-dir", type=str,
+        "--output-dir",
+        type=str,
         default="analysis/coordination_analysis",
         help="Output directory for coord_n_star.json (default: analysis/coordination_analysis)",
     )
     # Sigmoid parameters — Best-style defaults
     p.add_argument(
-        "--best-style", action="store_true", default=True,
+        "--best-style",
+        action="store_true",
+        default=True,
         help="Use Best et al. (2013) Cα parameters: r_half=8.0, tau=0.2 (default: True)",
     )
     p.add_argument(
-        "--no-best-style", action="store_false", dest="best_style",
+        "--no-best-style",
+        action="store_false",
+        dest="best_style",
         help="Use legacy parameters (r_half=7.0, tau=1.0) instead of Best-style",
     )
     p.add_argument(
-        "--r-half", type=float, default=None,
+        "--r-half",
+        type=float,
+        default=None,
         help="Sigmoid midpoint distance in Å (default: 8.0 best-style, 7.0 legacy)",
     )
     p.add_argument(
-        "--tau", type=float, default=None,
+        "--tau",
+        type=float,
+        default=None,
         help="Sigmoid steepness τ in Å (default: 0.2 best-style, 1.0 legacy)",
     )
     p.add_argument(
-        "--exclude", type=int, default=3,
+        "--exclude",
+        type=int,
+        default=3,
         help="Minimum sequence separation |i-j| > exclude (default: 3)",
     )
     p.add_argument(
-        "--max-dist", type=float, default=None,
+        "--max-dist",
+        type=float,
+        default=None,
         help="Distance cutoff in Å (default: 12.0 best-style, 10.0 legacy)",
     )
     p.add_argument(
-        "--percentiles", type=float, nargs=2, default=[5, 95],
+        "--percentiles",
+        type=float,
+        nargs=2,
+        default=[5, 95],
         metavar=("LO", "HI"),
         help="Lower and upper percentiles for constraint bounds (default: 5 95)",
     )
     p.add_argument(
-        "--min-len", type=int, default=40,
+        "--min-len",
+        type=int,
+        default=40,
         help="Minimum chain length (default: 40)",
     )
     p.add_argument(
-        "--max-len", type=int, default=512,
+        "--max-len",
+        type=int,
+        default=512,
         help="Maximum chain length (default: 512)",
     )
     p.add_argument(
-        "--max-pdbs", type=int, default=None,
+        "--max-pdbs",
+        type=int,
+        default=None,
         help="Maximum number of PDB IDs to process (default: all)",
     )
     p.add_argument(
-        "--max-chains", type=int, default=None,
+        "--max-chains",
+        type=int,
+        default=None,
         help="Maximum number of chains to collect (default: no limit)",
     )
     p.add_argument(
-        "--no-plots", action="store_true",
+        "--no-plots",
+        action="store_true",
         help="Skip generating distribution plots",
     )
     p.add_argument(
-        "--quiet", action="store_true",
+        "--quiet",
+        action="store_true",
         help="Reduce verbosity",
     )
     p.set_defaults(func=run)
@@ -918,6 +1057,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def run(args: argparse.Namespace) -> None:
     """Run coordination analysis."""
@@ -935,8 +1075,14 @@ def run(args: argparse.Namespace) -> None:
         style_label = "Legacy"
 
     logger.info("Sigmoid style: %s", style_label)
-    logger.info("  r_half=%.1f Å, tau=%.2f Å (β=%.1f Å⁻¹), exclude=%d, max_dist=%.1f Å",
-                r_half, tau, 1.0 / tau, args.exclude, max_dist)
+    logger.info(
+        "  r_half=%.1f Å, tau=%.2f Å (β=%.1f Å⁻¹), exclude=%d, max_dist=%.1f Å",
+        r_half,
+        tau,
+        1.0 / tau,
+        args.exclude,
+        max_dist,
+    )
 
     pdb_list_path = Path(args.pdb_list)
     if not pdb_list_path.exists():
@@ -944,10 +1090,7 @@ def run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     with open(pdb_list_path) as f:
-        pdb_ids = [
-            line.strip() for line in f
-            if line.strip() and not line.startswith("#")
-        ]
+        pdb_ids = [line.strip() for line in f if line.strip() and not line.startswith("#")]
     if args.max_pdbs is not None:
         pdb_ids = pdb_ids[: args.max_pdbs]
     logger.info("Loaded %d PDB IDs from %s", len(pdb_ids), pdb_list_path)
@@ -956,16 +1099,17 @@ def run(args: argparse.Namespace) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Collect per-residue n_i and per-chain ρ ───────────────────────────
-    coord_by_aa = defaultdict(list)            # aa_idx -> [n_soft, ...]
+    coord_by_aa = defaultdict(list)  # aa_idx -> [n_soft, ...]
     grouped_by_aa = defaultdict(lambda: [[] for _ in range(NUM_GROUPS)])
     # grouped_by_aa[aa_idx][k] -> [n_i^(k), ...]  for each residue of type aa_idx
-    chain_data = []                    # list of {pdb_id, chain_id, L, rho, rg}
+    chain_data = []  # list of {pdb_id, chain_id, L, rho, rg}
     n_structures = 0
     n_chains = 0
     n_residues = 0
     n_skipped = 0
 
     import requests
+
     session = requests.Session()
 
     for i, pdb_id in enumerate(pdb_ids):
@@ -996,9 +1140,7 @@ def run(args: argparse.Namespace) -> None:
         n_structures += 1
 
         for chain in raw_chains:
-            fragments = split_chain_on_gaps(
-                chain.coords, chain.seq, max_ca_jump=4.5
-            )
+            fragments = split_chain_on_gaps(chain.coords, chain.seq, max_ca_jump=4.5)
 
             for frag_coords, frag_seq in fragments:
                 L = len(frag_seq)
@@ -1010,16 +1152,22 @@ def run(args: argparse.Namespace) -> None:
 
                 # Compute per-residue coordination (scalar)
                 n_soft = compute_soft_coordination(
-                    coords, r_half=r_half, tau=tau,
-                    exclude=args.exclude, max_dist=max_dist,
+                    coords,
+                    r_half=r_half,
+                    tau=tau,
+                    exclude=args.exclude,
+                    max_dist=max_dist,
                 )
 
                 # Compute group-conditional coordination vectors (L, 5)
                 n_grouped = compute_grouped_coordination(
-                    coords, seq,
+                    coords,
+                    seq,
                     group_assignment=AA_GROUP_ASSIGNMENT,
-                    r_half=r_half, tau=tau,
-                    exclude=args.exclude, max_dist=max_dist,
+                    r_half=r_half,
+                    tau=tau,
+                    exclude=args.exclude,
+                    max_dist=max_dist,
                 )
 
                 # Per-AA accumulation — scalar and grouped
@@ -1032,18 +1180,20 @@ def run(args: argparse.Namespace) -> None:
 
                 # Per-chain ρ (scalar) and ρ^(k) (group vector)
                 rho = compute_contact_density(n_soft)
-                rho_grouped = n_grouped.sum(axis=0) / max(L, 1)   # (5,) group densities
+                rho_grouped = n_grouped.sum(axis=0) / max(L, 1)  # (5,) group densities
                 com = coords.mean(axis=0)
                 rg = float(np.sqrt(((coords - com) ** 2).sum(axis=-1).mean()))
 
-                chain_data.append({
-                    "pdb_id": pdb_id,
-                    "chain_id": getattr(chain, "chain_id", "A"),
-                    "L": L,
-                    "rho": rho,
-                    "rho_grouped": rho_grouped.tolist(),   # [ρ^0 .. ρ^4]
-                    "rg": rg,
-                })
+                chain_data.append(
+                    {
+                        "pdb_id": pdb_id,
+                        "chain_id": getattr(chain, "chain_id", "A"),
+                        "L": L,
+                        "rho": rho,
+                        "rho_grouped": rho_grouped.tolist(),  # [ρ^0 .. ρ^4]
+                        "rg": rg,
+                    }
+                )
 
                 n_chains += 1
                 n_residues += L
@@ -1057,7 +1207,11 @@ def run(args: argparse.Namespace) -> None:
         if not args.quiet and (i + 1) % 500 == 0:
             logger.info(
                 "  Processed %d/%d PDBs (%d chains, %d residues, %d skipped)",
-                i + 1, len(pdb_ids), n_chains, n_residues, n_skipped,
+                i + 1,
+                len(pdb_ids),
+                n_chains,
+                n_residues,
+                n_skipped,
             )
 
         if args.max_chains is not None and n_chains >= args.max_chains:
@@ -1068,7 +1222,10 @@ def run(args: argparse.Namespace) -> None:
 
     logger.info(
         "Done: %d PDBs, %d chains, %d residues, %d skipped",
-        n_structures, n_chains, n_residues, n_skipped,
+        n_structures,
+        n_chains,
+        n_residues,
+        n_skipped,
     )
     if n_chains == 0:
         logger.error("No valid chains found. Check --cache-dir and --pdb-list.")
@@ -1089,11 +1246,20 @@ def run(args: argparse.Namespace) -> None:
     logger.info("")
     logger.info(
         "Per-AA coordination (r_half=%.1f, tau=%.2f, exclude=%d, max_dist=%.1f):",
-        r_half, tau, args.exclude, max_dist,
+        r_half,
+        tau,
+        args.exclude,
+        max_dist,
     )
     logger.info(
         "  %4s %3s %8s %7s %7s %7s %7s",
-        "AA", "1L", "count", "mean", "std", f"p{p_lo:.0f}", f"p{p_hi:.0f}",
+        "AA",
+        "1L",
+        "count",
+        "mean",
+        "std",
+        f"p{p_lo:.0f}",
+        f"p{p_hi:.0f}",
     )
     logger.info("  " + "-" * 50)
 
@@ -1129,7 +1295,13 @@ def run(args: argparse.Namespace) -> None:
         aa1 = AA3_TO_1.get(aa, "?")
         logger.info(
             "  %4s (%s)  %7d  %6.2f  %6.2f  %6.2f  %6.2f",
-            aa, aa1, len(vals), mean_val, std_val, lo_val, hi_val,
+            aa,
+            aa1,
+            len(vals),
+            mean_val,
+            std_val,
+            lo_val,
+            hi_val,
         )
 
     # ── Contact density ρ statistics + ρ*(L) fit ─────────────────────────
@@ -1159,8 +1331,9 @@ def run(args: argparse.Namespace) -> None:
     logger.info("  %12s  %5s  %6s  %6s  %6s  %6s", "L range", "N", "mean", "std", "p5", "p95")
     logger.info("  " + "-" * 55)
     for bs in rho_fit["bins"]:
-        logger.info("  %12s  %5d  %6.3f  %6.3f  %6.3f  %6.3f",
-                     bs["range"], bs["n"], bs["mean"], bs["std"], bs["p5"], bs["p95"])
+        logger.info(
+            "  %12s  %5d  %6.3f  %6.3f  %6.3f  %6.3f", bs["range"], bs["n"], bs["mean"], bs["std"], bs["p5"], bs["p95"]
+        )
 
     # ── Per-group contact density ρ^(k) statistics + fits ─────────────────
     logger.info("")
@@ -1175,7 +1348,7 @@ def run(args: argparse.Namespace) -> None:
     for k in range(NUM_GROUPS):
         rhos_k = np.array([d["rho_grouped"][k] for d in chain_data])
         sigma_k = float(rhos_k.std())
-        mean_k  = float(rhos_k.mean())
+        mean_k = float(rhos_k.mean())
         rho_group_sigma.append(round(sigma_k, 4))
         rho_group_global_mean.append(round(mean_k, 4))
 
@@ -1185,9 +1358,14 @@ def run(args: argparse.Namespace) -> None:
         logger.info("")
         logger.info("  Group %d (%s):", k, GROUP_NAMES[k])
         logger.info("    members: %s", ", ".join(GROUP_MEMBERS[k]))
-        logger.info("    ρ^(%d) mean=%.3f  std=%.3f  p5=%.3f  p95=%.3f",
-                     k, mean_k, sigma_k,
-                     np.percentile(rhos_k, 5), np.percentile(rhos_k, 95))
+        logger.info(
+            "    ρ^(%d) mean=%.3f  std=%.3f  p5=%.3f  p95=%.3f",
+            k,
+            mean_k,
+            sigma_k,
+            np.percentile(rhos_k, 5),
+            np.percentile(rhos_k, 95),
+        )
         logger.info("    ρ^(%d)*(L) fit: %s", k, fit_k["fit_formula"])
         logger.info("    Pearson  ρ^(%d) vs L: r=%.3f", k, fit_k["pearson_rho_vs_L"])
 
@@ -1212,20 +1390,24 @@ def run(args: argparse.Namespace) -> None:
     logger.info("")
     logger.info(
         "  %4s (%s)  grp  %8s  %7s  %7s",
-        "AA", "1L", "count", "mean", "std",
+        "AA",
+        "1L",
+        "count",
+        "mean",
+        "std",
     )
     logger.info("  " + "-" * 50)
 
     # Storage: list of 20 lists of 5 floats
     n_group_mean_list: list[list[float]] = []
-    n_group_std_list:  list[list[float]] = []
+    n_group_std_list: list[list[float]] = []
     n_group_mean_per_aa: dict[str, list[float]] = {}
-    n_group_std_per_aa:  dict[str, list[float]] = {}
+    n_group_std_per_aa: dict[str, list[float]] = {}
 
     for aa_idx, aa in enumerate(AA_ORDER):
         aa1 = AA3_TO_1.get(aa, "?")
         means = []
-        stds  = []
+        stds = []
         for k in range(NUM_GROUPS):
             vals_k = grouped_by_aa[aa_idx][k]
             if len(vals_k) < 2:
@@ -1238,20 +1420,24 @@ def run(args: argparse.Namespace) -> None:
             stds.append(round(s, 4))
             logger.info(
                 "  %4s (%s)  g=%d  %8d  %6.3f  %6.3f   [%s]",
-                aa, aa1, k,
+                aa,
+                aa1,
+                k,
                 len(grouped_by_aa[aa_idx][k]),
-                m, s, GROUP_NAMES[k],
+                m,
+                s,
+                GROUP_NAMES[k],
             )
 
         n_group_mean_list.append(means)
         n_group_std_list.append(stds)
         n_group_mean_per_aa[aa] = means
-        n_group_std_per_aa[aa]  = stds
+        n_group_std_per_aa[aa] = stds
         logger.info("  " + "·" * 42)
 
     # ── Per-AA grouped lo/hi bands ────────────────────────────────────────
-    n_group_lo_list:  list[list[float]] = []
-    n_group_hi_list:  list[list[float]] = []
+    n_group_lo_list: list[list[float]] = []
+    n_group_hi_list: list[list[float]] = []
     n_group_lo_per_aa: dict[str, list[float]] = {}
     n_group_hi_per_aa: dict[str, list[float]] = {}
 
@@ -1283,49 +1469,49 @@ def run(args: argparse.Namespace) -> None:
     # ── Save ──────────────────────────────────────────────────────────────
     output = {
         # ── Scalar per-AA coordination (backward-compatible) ──────────────
-        "n_lo_per_aa":   n_lo_per_aa,
-        "n_hi_per_aa":   n_hi_per_aa,
+        "n_lo_per_aa": n_lo_per_aa,
+        "n_hi_per_aa": n_hi_per_aa,
         "n_mean_per_aa": n_mean_per_aa,
-        "n_std_per_aa":  n_std_per_aa,
-        "n_lo_list":     n_lo_list,     # [20] p5  per AA
-        "n_hi_list":     n_hi_list,     # [20] p95 per AA
-        "n_mean_list":   n_mean_list,   # [20] mean per AA
-        "n_std_list":    n_std_list,    # [20] std  per AA
+        "n_std_per_aa": n_std_per_aa,
+        "n_lo_list": n_lo_list,  # [20] p5  per AA
+        "n_hi_list": n_hi_list,  # [20] p95 per AA
+        "n_mean_list": n_mean_list,  # [20] mean per AA
+        "n_std_list": n_std_list,  # [20] std  per AA
         # ── Group-conditional per-AA coordination (NEW) ───────────────────
-        "n_group_mean_list":   n_group_mean_list,    # [20][5] n*(k) centers
-        "n_group_std_list":    n_group_std_list,     # [20][5] sigma(k) widths
-        "n_group_lo_list":     n_group_lo_list,      # [20][5] p5  bands
-        "n_group_hi_list":     n_group_hi_list,      # [20][5] p95 bands
+        "n_group_mean_list": n_group_mean_list,  # [20][5] n*(k) centers
+        "n_group_std_list": n_group_std_list,  # [20][5] sigma(k) widths
+        "n_group_lo_list": n_group_lo_list,  # [20][5] p5  bands
+        "n_group_hi_list": n_group_hi_list,  # [20][5] p95 bands
         "n_group_mean_per_aa": n_group_mean_per_aa,  # {aa: [m0..m4]}
-        "n_group_std_per_aa":  n_group_std_per_aa,   # {aa: [s0..s4]}
-        "n_group_lo_per_aa":   n_group_lo_per_aa,    # {aa: [lo0..lo4]}
-        "n_group_hi_per_aa":   n_group_hi_per_aa,    # {aa: [hi0..hi4]}
+        "n_group_std_per_aa": n_group_std_per_aa,  # {aa: [s0..s4]}
+        "n_group_lo_per_aa": n_group_lo_per_aa,  # {aa: [lo0..lo4]}
+        "n_group_hi_per_aa": n_group_hi_per_aa,  # {aa: [hi0..hi4]}
         # ── Scalar contact density ρ (backward-compatible) ────────────────
-        "rho_fit":         rho_fit,
+        "rho_fit": rho_fit,
         # ── Group-conditional contact density ρ^(k) (NEW) ────────────────
-        "rho_group_fits":        rho_group_fits,        # [5] fit dicts
-        "rho_group_sigma":       rho_group_sigma,        # [5] global std
+        "rho_group_fits": rho_group_fits,  # [5] fit dicts
+        "rho_group_sigma": rho_group_sigma,  # [5] global std
         "rho_group_global_mean": rho_group_global_mean,  # [5] global mean
-        "rho_group_lo":          rho_group_lo,           # [5] p5  (global)
-        "rho_group_hi":          rho_group_hi,           # [5] p95 (global)
+        "rho_group_lo": rho_group_lo,  # [5] p5  (global)
+        "rho_group_hi": rho_group_hi,  # [5] p95 (global)
         # ── Group scheme ──────────────────────────────────────────────────
-        "group_names":      GROUP_NAMES,
+        "group_names": GROUP_NAMES,
         "group_assignment": AA_GROUP_ASSIGNMENT,
-        "group_members":    {str(k): v for k, v in GROUP_MEMBERS.items()},
+        "group_members": {str(k): v for k, v in GROUP_MEMBERS.items()},
         # ── Sigmoid parameters ────────────────────────────────────────────
-        "sigmoid_style":    "best" if args.best_style else "legacy",
-        "sigmoid_r_half":   r_half,
-        "sigmoid_tau":      tau,
-        "sigmoid_beta":     round(1.0 / tau, 2),
-        "sigmoid_exclude":  args.exclude,
+        "sigmoid_style": "best" if args.best_style else "legacy",
+        "sigmoid_r_half": r_half,
+        "sigmoid_tau": tau,
+        "sigmoid_beta": round(1.0 / tau, 2),
+        "sigmoid_exclude": args.exclude,
         "sigmoid_max_dist": max_dist,
         # ── Metadata ──────────────────────────────────────────────────────
-        "percentiles":  [p_lo, p_hi],
+        "percentiles": [p_lo, p_hi],
         "n_structures": n_structures,
-        "n_chains":     n_chains,
-        "n_residues":   n_residues,
-        "aa_order":     AA_ORDER,
-        "n_groups":     NUM_GROUPS,
+        "n_chains": n_chains,
+        "n_residues": n_residues,
+        "aa_order": AA_ORDER,
+        "n_groups": NUM_GROUPS,
     }
 
     out_dir = Path(args.output_dir)
@@ -1362,6 +1548,9 @@ def run(args: argparse.Namespace) -> None:
         _plot_distributions(coord_by_aa, n_mean_list, n_std_list, out_dir)
         _plot_rho(chain_data, rho_fit, out_dir)
         _plot_group_distributions(
-            grouped_by_aa, n_group_mean_list, n_group_std_list, out_dir,
+            grouped_by_aa,
+            n_group_mean_list,
+            n_group_std_list,
+            out_dir,
         )
         _plot_rho_group(chain_data, rho_group_fits, out_dir)

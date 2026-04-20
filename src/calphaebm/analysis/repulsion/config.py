@@ -68,8 +68,8 @@ PMF_MIN_G: float = 1e-12  # lower floor for g(r) before log
 PMF_SMOOTH_SIGMA: float = 0.0  # (bins) optional smoothing of PMF; 0 disables
 
 # Repulsive wall extraction
-WALL_SPARSE_N: int = 48     # sparse grid points for monotone wall
-WALL_DENSE_N: int = 200     # dense interpolation grid
+WALL_SPARSE_N: int = 48  # sparse grid points for monotone wall
+WALL_DENSE_N: int = 200  # dense interpolation grid
 
 # Smoothing in bins for the wall (0 disables)
 WALL_SMOOTH_SIGMA_BINS: float = 1.0

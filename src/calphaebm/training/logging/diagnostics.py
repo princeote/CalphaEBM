@@ -18,13 +18,13 @@ This module reports:
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 import torch
 
+from calphaebm.models.learnable_buffers import buffer_drift_report
 from calphaebm.utils.logging import get_logger
 from calphaebm.utils.neighbors import pairwise_distances
-from calphaebm.models.learnable_buffers import buffer_drift_report
 
 logger = get_logger()
 
@@ -67,23 +67,30 @@ def _infer_nonbonded_exclude(model, default: int = 3) -> int:
 def _read_lambdas(model) -> Dict[str, Optional[float]]:
     """Read all current lambda values from the model."""
     import torch.nn.functional as F
+
     lams: Dict[str, Optional[float]] = {}
     local = getattr(model, "local", None)
     if local is not None:
         # 4-mer architecture
         lams["theta_phi"] = float(local.theta_phi_weight.item()) if hasattr(local, "theta_phi_weight") else None
         # Old 3-subterm architecture
-        lams["theta"]     = float(local.theta_theta_weight.item()) if hasattr(local, "theta_theta_weight") else None
-        lams["delta_phi"] = float(F.softplus(local._delta_phi_weight_raw).item()) if hasattr(local, "_delta_phi_weight_raw") else None
-        lams["phi_phi"]   = float(local.phi_phi_weight.item()) if hasattr(local, "phi_phi_weight") else None
+        lams["theta"] = float(local.theta_theta_weight.item()) if hasattr(local, "theta_theta_weight") else None
+        lams["delta_phi"] = (
+            float(F.softplus(local._delta_phi_weight_raw).item()) if hasattr(local, "_delta_phi_weight_raw") else None
+        )
+        lams["phi_phi"] = float(local.phi_phi_weight.item()) if hasattr(local, "phi_phi_weight") else None
     ss = getattr(model, "secondary", None)
     if ss is not None:
-        lams["ram"]    = float(ss.ram_weight.item()) if hasattr(ss, "ram_weight") else (float(F.softplus(ss.lambda_ram).item()) if hasattr(ss, "lambda_ram") else None)
-        lams["hb_a"]   = float(ss.hb_helix.lambda_hb.item()) if hasattr(ss, "hb_helix") else None
-        lams["hb_b"]   = float(ss.hb_sheet.lambda_hb.item()) if hasattr(ss, "hb_sheet") else None
+        lams["ram"] = (
+            float(ss.ram_weight.item())
+            if hasattr(ss, "ram_weight")
+            else (float(F.softplus(ss.lambda_ram).item()) if hasattr(ss, "lambda_ram") else None)
+        )
+        lams["hb_a"] = float(ss.hb_helix.lambda_hb.item()) if hasattr(ss, "hb_helix") else None
+        lams["hb_b"] = float(ss.hb_sheet.lambda_hb.item()) if hasattr(ss, "hb_sheet") else None
     rep = getattr(model, "repulsion", None)
     if rep is not None:
-        lams["rep"]  = float(F.softplus(rep._lambda_rep_raw).item()) if hasattr(rep, "_lambda_rep_raw") else None
+        lams["rep"] = float(F.softplus(rep._lambda_rep_raw).item()) if hasattr(rep, "_lambda_rep_raw") else None
     pack = getattr(model, "packing", None)
     if pack is not None:
         # v5: hp_rew (from burial) + rho_rew
@@ -111,6 +118,7 @@ class DiagnosticLogger:
         # EMA tracker for smooth metrics (single-batch diagnostics are noisy)
         # alpha=0.2 → 20% weight on new data, half-life ≈ 3 steps, responsive to recent batches
         from calphaebm.training.core.ema_tracker import EMATracker
+
         self.ema = EMATracker(alpha=0.2)
 
     def update_ema(self, **kwargs: float) -> None:
@@ -123,8 +131,7 @@ class DiagnosticLogger:
 
     # ── internal helpers ──────────────────────────────────────────────────────
 
-    def _repulsion_metrics(self, R: torch.Tensor,
-                           lengths: torch.Tensor | None = None) -> dict:
+    def _repulsion_metrics(self, R: torch.Tensor, lengths: torch.Tensor | None = None) -> dict:
         B, L = R.shape[:2]
         exclude = _infer_nonbonded_exclude(self.model, default=3)
         idx = torch.arange(L, device=R.device)
@@ -152,14 +159,15 @@ class DiagnosticLogger:
         if nonbonded_dists.numel() == 0:
             return {"exclude": exclude, "min_dist": float("inf"), "frac_below_40": 0.0, "frac_below_45": 0.0}
         return {
-            "exclude":       int(exclude),
-            "min_dist":      float(nonbonded_dists.amin(dim=1).median().item()),
+            "exclude": int(exclude),
+            "min_dist": float(nonbonded_dists.amin(dim=1).median().item()),
             "frac_below_40": float((nonbonded_dists < 4.0).float().mean(dim=1).median().item()),
             "frac_below_45": float((nonbonded_dists < 4.5).float().mean(dim=1).median().item()),
         }
 
-    def _term_energies(self, R: torch.Tensor, seq: torch.Tensor,
-                       lengths: torch.Tensor | None = None) -> Dict[str, float]:
+    def _term_energies(
+        self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None
+    ) -> Dict[str, float]:
         """Compute per-term energies, pulling subterm splits where available.
 
         Uses subterm_energies() for secondary and packing so each term does
@@ -192,9 +200,9 @@ class DiagnosticLogger:
         if ss_mod is not None:
             if hasattr(ss_mod, "subterm_energies"):
                 E_ram, E_tp, E_pp = ss_mod.subterm_energies(R, seq, lengths=lengths)
-                out["secondary_ram"]      = float(E_ram.mean().item())
+                out["secondary_ram"] = float(E_ram.mean().item())
                 out["secondary_hb_alpha"] = float(E_tp.mean().item())
-                out["secondary_hb_beta"]  = float(E_pp.mean().item())
+                out["secondary_hb_beta"] = float(E_pp.mean().item())
                 out["secondary"] = out["secondary_ram"] + out["secondary_hb_alpha"] + out["secondary_hb_beta"]
             else:
                 out["secondary"] = float(ss_mod(R, seq, lengths=lengths).mean().item())
@@ -207,25 +215,23 @@ class DiagnosticLogger:
                 if len(subterms) == 5:
                     # v5: (E_hp_reward, E_hp_penalty, E_rho_reward, E_rho_penalty, E_rg_penalty)
                     E_hp_rew, E_hp_pen, E_rho_rew, E_rho_pen, E_rg_pen = subterms
-                    out["packing_hp_reward"]  = float(E_hp_rew.mean().item())
+                    out["packing_hp_reward"] = float(E_hp_rew.mean().item())
                     out["packing_hp_penalty"] = float(E_hp_pen.mean().item())
                     out["packing_rho_reward"] = float(E_rho_rew.mean().item())
-                    out["packing_rho_penalty"]= float(E_rho_pen.mean().item())
-                    out["packing_rg"]         = float(E_rg_pen.mean().item())
+                    out["packing_rho_penalty"] = float(E_rho_pen.mean().item())
+                    out["packing_rg"] = float(E_rg_pen.mean().item())
                     # Packing = learned subterms (in E-balance)
                     out["packing_contact"] = out["packing_hp_reward"]
                     out["packing"] = out["packing_hp_reward"] + out["packing_rho_reward"]
                     # Constraints = analytical guardrails, 0 trainable params
                     out["packing_coord"] = out["packing_hp_penalty"]
-                    out["constraint"] = (out["packing_hp_penalty"]
-                                        + out["packing_rho_penalty"]
-                                        + out["packing_rg"])
+                    out["constraint"] = out["packing_hp_penalty"] + out["packing_rho_penalty"] + out["packing_rg"]
                 else:
                     # v4 fallback: (E_hp, E_coord, E_rg)
                     E_hp, E_coord, E_rg = subterms
                     out["packing_contact"] = float(E_hp.mean().item())
-                    out["packing_coord"]   = float(E_coord.mean().item())
-                    out["packing_rg"]      = float(E_rg.mean().item())
+                    out["packing_coord"] = float(E_coord.mean().item())
+                    out["packing_rg"] = float(E_rg.mean().item())
                     out["packing"] = out["packing_contact"]
                     out["constraint"] = out["packing_coord"] + out["packing_rg"]
             else:
@@ -245,54 +251,54 @@ class DiagnosticLogger:
 
     def log_step_block(
         self,
-        phase_step:              int,
-        n_steps:                 int,
-        loss:                    float,
-        lr:                      float,
-        R:                       torch.Tensor,
-        seq:                     torch.Tensor,
-        forces:                  Optional[torch.Tensor] = None,
-        force_cap:               float = 50.0,
-        perturb_sigma:           float = 0.30,
-        geogap_diag:             Optional[Dict[str, Any]] = None,
-        geogap_margin:           float = 0.20,
-        loss_pack_c:             Optional[float] = None,
+        phase_step: int,
+        n_steps: int,
+        loss: float,
+        lr: float,
+        R: torch.Tensor,
+        seq: torch.Tensor,
+        forces: Optional[torch.Tensor] = None,
+        force_cap: float = 50.0,
+        perturb_sigma: float = 0.30,
+        geogap_diag: Optional[Dict[str, Any]] = None,
+        geogap_margin: float = 0.20,
+        loss_pack_c: Optional[float] = None,
         lambda_pack_contrastive: float = 0.0,
         pack_contrastive_margin: float = 0.5,
-        loss_balance:            Optional[float] = None,
-        lambda_balance:          float = 0.0,
-        term_absmeans:           Optional[Dict[str, float]] = None,
-        term_absmeans_agg:       Optional[Dict[str, float]] = None,
-        balance_r_term:          float = 4.0,
-        loss_basin:              Optional[float] = None,
-        lambda_basin:            float = 0.0,
-        basin_margin:            float = 0.5,
-        loss_native:             Optional[float] = None,
-        lambda_native:           float = 0.0,
-        native_margin:           float = 0.5,
-        native_diag:             Optional[Dict[str, Any]] = None,
-        lengths:                 Optional[torch.Tensor] = None,
+        loss_balance: Optional[float] = None,
+        lambda_balance: float = 0.0,
+        term_absmeans: Optional[Dict[str, float]] = None,
+        term_absmeans_agg: Optional[Dict[str, float]] = None,
+        balance_r_term: float = 4.0,
+        loss_basin: Optional[float] = None,
+        lambda_basin: float = 0.0,
+        basin_margin: float = 0.5,
+        loss_native: Optional[float] = None,
+        lambda_native: float = 0.0,
+        native_margin: float = 0.5,
+        native_diag: Optional[Dict[str, Any]] = None,
+        lengths: Optional[torch.Tensor] = None,
         # ELT diagnostics
-        elt_diag:                Optional[Dict[str, Any]] = None,
-        loss_funnel:             Optional[float] = None,
-        lambda_funnel:           float = 0.0,
-        loss_zscore:             Optional[float] = None,
-        lambda_zscore:           float = 0.0,
-        target_zscore:           float = 3.0,
-        loss_elt_gap:            Optional[float] = None,
-        lambda_gap_elt:          float = 0.0,
-        loss_frust:              Optional[float] = None,
-        lambda_frustration:      float = 0.0,
+        elt_diag: Optional[Dict[str, Any]] = None,
+        loss_funnel: Optional[float] = None,
+        lambda_funnel: float = 0.0,
+        loss_zscore: Optional[float] = None,
+        lambda_zscore: float = 0.0,
+        target_zscore: float = 3.0,
+        loss_elt_gap: Optional[float] = None,
+        lambda_gap_elt: float = 0.0,
+        loss_frust: Optional[float] = None,
+        lambda_frustration: float = 0.0,
         # Native depth loss
-        loss_native_depth:       Optional[float] = None,
-        lambda_native_depth:     float = 0.0,
-        target_native_depth:     float = -1.0,
-        e_native_depth:          Optional[float] = None,
+        loss_native_depth: Optional[float] = None,
+        lambda_native_depth: float = 0.0,
+        target_native_depth: float = -1.0,
+        e_native_depth: Optional[float] = None,
         # Pre-computed from training loop (avoids double computation)
-        precomputed:             Optional[Dict[str, Any]] = None,
+        precomputed: Optional[Dict[str, Any]] = None,
         # DSM loss (for display in diagnostic block)
-        loss_dsm:                Optional[float] = None,
-        dsm_diag:                Optional[Dict] = None,
+        loss_dsm: Optional[float] = None,
+        dsm_diag: Optional[Dict] = None,
     ) -> None:
         """
         Emit one structured diagnostic block combining all metrics.
@@ -309,8 +315,8 @@ class DiagnosticLogger:
         gap_sigmas = [0.30, 0.50, 1.00, 2.00]
 
         with torch.no_grad():
-            gates   = self._gates()
-            lams    = _read_lambdas(self.model)
+            gates = self._gates()
+            lams = _read_lambdas(self.model)
 
             # Always compute term energies fresh — includes subterm splits
             # (precomputed only has the 4 main terms, not subterms like
@@ -320,10 +326,9 @@ class DiagnosticLogger:
             # Gap profiling: IC-space perturbations (consistent with ELT and Langevin)
             # Sigmas are in radians — 0.3≈17°, 0.5≈29°, 1.0≈57°, 2.0≈115°
             # Structures with min nonbonded dist < 1.0Å are rejected and resampled.
-            from calphaebm.geometry.reconstruct import (
-                nerf_reconstruct, coords_to_internal, extract_anchor,
-            )
             import math as _math
+
+            from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
             E_perts = {}
             try:
@@ -364,7 +369,8 @@ class DiagnosticLogger:
         # ── lambdas ───────────────────────────────────────────────────────────
         def _lv(key, fix=False):
             v = lams.get(key)
-            if v is None: return "n/a"
+            if v is None:
+                return "n/a"
             suffix = "(fix)" if fix else ""
             return f"{v:.3f}{suffix}"
 
@@ -374,42 +380,59 @@ class DiagnosticLogger:
                 logger.info(
                     "  Lambdas:  θφ=%-7s ram=%-7s hbα=%-7s hbβ=%-7s rep=%-7s hp=%-7s ρ=%s",
                     _lv("theta_phi"),
-                    _lv("ram"), _lv("hb_a"), _lv("hb_b"),
-                    _lv("rep"), _lv("hp_rew"), _lv("rho_rew"),
+                    _lv("ram"),
+                    _lv("hb_a"),
+                    _lv("hb_b"),
+                    _lv("rep"),
+                    _lv("hp_rew"),
+                    _lv("rho_rew"),
                 )
             else:
                 # v4: geom + cont
                 logger.info(
                     "  Lambdas:  θφ=%-7s ram=%-7s hbα=%-7s hbβ=%-7s rep=%-7s geom=%-7s cont=%s",
                     _lv("theta_phi"),
-                    _lv("ram"), _lv("hb_a"), _lv("hb_b"),
-                    _lv("rep"), _lv("geom"), _lv("cont"),
+                    _lv("ram"),
+                    _lv("hb_a"),
+                    _lv("hb_b"),
+                    _lv("rep"),
+                    _lv("geom"),
+                    _lv("cont"),
                 )
         else:
             logger.info(
                 "  Lambdas:  θθ=%-7s Δφ=%-7s φφ=%-7s ram=%-7s hbα=%-7s hbβ=%-7s rep=%-7s geom=%-7s cont=%s",
-                _lv("theta"), _lv("delta_phi"), _lv("phi_phi"),
-                _lv("ram"), _lv("hb_a"), _lv("hb_b"),
-                _lv("rep"), _lv("geom"), _lv("cont"),
+                _lv("theta"),
+                _lv("delta_phi"),
+                _lv("phi_phi"),
+                _lv("ram"),
+                _lv("hb_a"),
+                _lv("hb_b"),
+                _lv("rep"),
+                _lv("geom"),
+                _lv("cont"),
             )
 
         # ── gates ─────────────────────────────────────────────────────────────
         g_local = gates.get("local", 1.0)
-        g_rep   = gates.get("repulsion", 1.0)
-        g_ss    = gates.get("secondary", 1.0)
-        g_pack  = gates.get("packing", 1.0)
+        g_rep = gates.get("repulsion", 1.0)
+        g_ss = gates.get("secondary", 1.0)
+        g_pack = gates.get("packing", 1.0)
         logger.info(
             "  Gates:    local=%.3f  rep=%.3f  ss=%.3f  pack=%.3f",
-            g_local, g_rep, g_ss, g_pack,
+            g_local,
+            g_rep,
+            g_ss,
+            g_pack,
         )
         logger.info("─" * W)
 
         # ── term table ────────────────────────────────────────────────────────
         terms = [
-            ("local",       "local",       g_local),
-            ("repulsion",   "repulsion",   g_rep),
-            ("secondary",   "secondary",   g_ss),
-            ("packing",     "packing",     g_pack),
+            ("local", "local", g_local),
+            ("repulsion", "repulsion", g_rep),
+            ("secondary", "secondary", g_ss),
+            ("packing", "packing", g_pack),
         ]
         # Constraints (coord + Rg) use packing gate — they live in PackingEnergy
         has_constraint = "constraint" in E_clean
@@ -423,29 +446,36 @@ class DiagnosticLogger:
         if term_absmeans:
             abs_local = term_absmeans.get("local_thetaphi", 0.0)
             if abs_local == 0.0:
-                abs_local = (term_absmeans.get("local_thetatheta", 0.0) +
-                             term_absmeans.get("local_deltaphi",   0.0) +
-                             term_absmeans.get("local_phiphi",     0.0))
-            abs_ss    = term_absmeans.get("secondary", 0.0)
+                abs_local = (
+                    term_absmeans.get("local_thetatheta", 0.0)
+                    + term_absmeans.get("local_deltaphi", 0.0)
+                    + term_absmeans.get("local_phiphi", 0.0)
+                )
+            abs_ss = term_absmeans.get("secondary", 0.0)
             if abs_ss == 0.0:
-                abs_ss = (term_absmeans.get("secondary_ram",      0.0) +
-                          term_absmeans.get("secondary_hb_alpha", 0.0) +
-                          term_absmeans.get("secondary_hb_beta",  0.0))
+                abs_ss = (
+                    term_absmeans.get("secondary_ram", 0.0)
+                    + term_absmeans.get("secondary_hb_alpha", 0.0)
+                    + term_absmeans.get("secondary_hb_beta", 0.0)
+                )
                 if abs_ss == 0.0:
                     # Legacy fallback
-                    abs_ss = (term_absmeans.get("secondary_thetaphi", 0.0) +
-                              term_absmeans.get("secondary_phiphi",   0.0))
-            abs_rep   =  term_absmeans.get("repulsion", 0.0)
-            abs_pack  =  term_absmeans.get("packing", 0.0)
+                    abs_ss = term_absmeans.get("secondary_thetaphi", 0.0) + term_absmeans.get("secondary_phiphi", 0.0)
+            abs_rep = term_absmeans.get("repulsion", 0.0)
+            abs_pack = term_absmeans.get("packing", 0.0)
             if abs_pack == 0.0:
                 # Packing = learned subterm (contact only)
                 abs_pack = term_absmeans.get("packing_contact", 0.0)
-            abs_constr = (term_absmeans.get("packing_hp_penalty", term_absmeans.get("packing_coord", 0.0)) +
-                          term_absmeans.get("packing_rho_penalty", 0.0) +
-                          term_absmeans.get("packing_rg", 0.0))
+            abs_constr = (
+                term_absmeans.get("packing_hp_penalty", term_absmeans.get("packing_coord", 0.0))
+                + term_absmeans.get("packing_rho_penalty", 0.0)
+                + term_absmeans.get("packing_rg", 0.0)
+            )
             pct_sub = {
-                "local": abs_local, "secondary": abs_ss,
-                "repulsion": abs_rep, "packing": abs_pack,
+                "local": abs_local,
+                "secondary": abs_ss,
+                "repulsion": abs_rep,
+                "packing": abs_pack,
             }
             if has_constraint:
                 pct_sub["constraint"] = abs_constr
@@ -479,8 +509,7 @@ class DiagnosticLogger:
         if "local_thetaphi" in E_clean:
             subterms["local"] = [("  └ θφ", "local_thetaphi")]
         elif "local_thetatheta" in E_clean:
-            subs = [("  ├ θθ", "local_thetatheta"),
-                    ("  ├ Δφ", "local_deltaphi")]
+            subs = [("  ├ θθ", "local_thetatheta"), ("  ├ Δφ", "local_deltaphi")]
             if "local_phiphi" in E_clean:
                 subs.append(("  └ φφ", "local_phiphi"))
             else:
@@ -488,7 +517,7 @@ class DiagnosticLogger:
             subterms["local"] = subs
         if "secondary_ram" in E_clean:
             subterms["secondary"] = [
-                ("  ├ ram",  "secondary_ram"),
+                ("  ├ ram", "secondary_ram"),
                 ("  ├ hb_α", "secondary_hb_alpha"),
                 ("  └ hb_β", "secondary_hb_beta"),
             ]
@@ -496,7 +525,7 @@ class DiagnosticLogger:
             # v5: 2 balance subterms (hp_reward, rho_reward)
             if "packing_rho_reward" in E_clean:
                 subterms["packing"] = [
-                    ("  ├ hp_rew",  "packing_hp_reward"),
+                    ("  ├ hp_rew", "packing_hp_reward"),
                     ("  └ rho_rew", "packing_rho_reward"),
                 ]
             else:
@@ -508,22 +537,27 @@ class DiagnosticLogger:
             # v5: 3 constraints (hp_penalty, rho_penalty, rg_penalty)
             if "packing_rho_penalty" in E_clean:
                 subterms["constraint"] = [
-                    ("  ├ hp_pen",   "packing_hp_penalty"),
-                    ("  ├ rho_pen",  "packing_rho_penalty"),
-                    ("  └ Rg",       "packing_rg"),
+                    ("  ├ hp_pen", "packing_hp_penalty"),
+                    ("  ├ rho_pen", "packing_rho_penalty"),
+                    ("  └ Rg", "packing_rg"),
                 ]
             else:
                 # v4 fallback: 2 constraints (coord, Rg)
                 subterms["constraint"] = [
-                    ("  ├ coord",   "packing_coord"),
-                    ("  └ Rg",     "packing_rg"),
+                    ("  ├ coord", "packing_coord"),
+                    ("  └ Rg", "packing_rg"),
                 ]
 
         # Header with all sigma columns
         sig_hdr = "  ".join(f"@{s:.1f}r" for s in gap_sigmas)
         logger.info(
             "  %-14s  %9s  %9s  %5s  %5s  %s  mean",
-            "term", "E/res", "gate×E", "E%", "|E|%", sig_hdr,
+            "term",
+            "E/res",
+            "gate×E",
+            "E%",
+            "|E|%",
+            sig_hdr,
         )
         logger.info("  " + "·" * (62 + 7 * len(gap_sigmas)))
 
@@ -538,7 +572,7 @@ class DiagnosticLogger:
             return col_str, mean_val
 
         for name, key, g in terms:
-            E  = E_clean.get(key, 0.0)
+            E = E_clean.get(key, 0.0)
             Ew = weighted[name]
             ps = 100.0 * pct_sub.get(name, abs(Ew)) / total_abs_sub
             pt = 100.0 * pct_term.get(name, abs(Ew)) / total_abs_term
@@ -548,7 +582,13 @@ class DiagnosticLogger:
             # Parent term row — E% then |E|%
             logger.info(
                 "  %-14s  %+9.3f  %+9.3f  %4.1f%%  %4.1f%%  %s  %+.3f",
-                name, E, Ew, pt, ps, gap_cols, mg,
+                name,
+                E,
+                Ew,
+                pt,
+                ps,
+                gap_cols,
+                mg,
             )
 
             # Subterm rows (if available)
@@ -558,14 +598,26 @@ class DiagnosticLogger:
                     sub_gap_str, sub_mg = _subterm_gaps(sub_key, g, E_sub)
                     logger.info(
                         "  %-14s  %+9.3f  %+9.3f  %5s  %5s  %s  %+.3f",
-                        sub_label, E_sub, g * E_sub, "", "", sub_gap_str, sub_mg,
+                        sub_label,
+                        E_sub,
+                        g * E_sub,
+                        "",
+                        "",
+                        sub_gap_str,
+                        sub_mg,
                     )
 
         logger.info("  " + "·" * (62 + 7 * len(gap_sigmas)))
         total_gap_cols = "  ".join(f"{total_gaps[sig]:+.3f}" for sig in gap_sigmas)
         logger.info(
             "  %-14s  %9s  %+9.3f  %6s  %6s  %s  %+.3f",
-            "TOTAL", "", E_total_w, "", "", total_gap_cols, mean_gap_total,
+            "TOTAL",
+            "",
+            E_total_w,
+            "",
+            "",
+            total_gap_cols,
+            mean_gap_total,
         )
 
         # Store mean_gap_total on the logger for external access
@@ -577,13 +629,17 @@ class DiagnosticLogger:
         if term_absmeans:
             N_sub = 7
             r_sub = 7.0
+
             def bounds_sub(k):
-                mn = 100.0 * k         / (k         + (N_sub - k) * r_sub)
+                mn = 100.0 * k / (k + (N_sub - k) * r_sub)
                 mx = 100.0 * k * r_sub / (k * r_sub + (N_sub - k))
                 return mn, mx
+
             bsub = {
-                "local": bounds_sub(1), "secondary": bounds_sub(3),
-                "repulsion": bounds_sub(1), "packing": bounds_sub(2),
+                "local": bounds_sub(1),
+                "secondary": bounds_sub(3),
+                "repulsion": bounds_sub(1),
+                "packing": bounds_sub(2),
             }
             parts_sub = "  ".join(f"{n}=[{mn:.0f}%,{mx:.0f}%]" for n, (mn, mx) in bsub.items())
             logger.info("  |E|%% bounds (subterm r=%.0f): %s", r_sub, parts_sub)
@@ -591,14 +647,18 @@ class DiagnosticLogger:
         # Term bounds (N=4 terms, r_term)
         r_t = balance_r_term
         N_term = 4
+
         def bounds_term(r_v):
             mn = 100.0 / (1 + (N_term - 1) * r_v)
             mx = 100.0 * r_v / (r_v + (N_term - 1))
             return mn, mx
+
         bt_mn, bt_mx = bounds_term(r_t)
         logger.info(
             "  E%%%% bounds (term r=%.0f): each in [%.1f%%,%.1f%%]",
-            r_t, bt_mn, bt_mx,
+            r_t,
+            bt_mn,
+            bt_mx,
         )
 
         logger.info("─" * W)
@@ -614,14 +674,14 @@ class DiagnosticLogger:
             f"  <4.5={rep_m['frac_below_45']:.2%}"
         )
         if "max_force" in precomputed:
-            max_f   = precomputed["max_force"]
+            max_f = precomputed["max_force"]
             clip_fr = precomputed.get("clip_frac", 0.0)
             safety_msg += f"  max|F|={max_f:.2f}  clip={clip_fr:.2%}"
             self.clip_fractions.append(clip_fr)
             self.max_forces.append(max_f)
         elif forces is not None:
             force_norms = torch.norm(forces, dim=-1)
-            max_f   = float(force_norms.max().item())
+            max_f = float(force_norms.max().item())
             clip_fr = float((force_norms > force_cap).float().mean().item())
             safety_msg += f"  max|F|={max_f:.2f}  clip={clip_fr:.2%}"
             self.clip_fractions.append(clip_fr)
@@ -630,13 +690,17 @@ class DiagnosticLogger:
 
         # ── geogap ────────────────────────────────────────────────────────────
         if geogap_diag is not None:
-            gap_v   = geogap_diag.get("gap", 0.0)
+            gap_v = geogap_diag.get("gap", 0.0)
             e_clean = geogap_diag.get("E_clean", 0.0)
-            e_pert  = geogap_diag.get("E_perturbed", 0.0)
-            status  = "OK" if not geogap_diag.get("gap_active", False) else "FAIL"
+            e_pert = geogap_diag.get("E_perturbed", 0.0)
+            status = "OK" if not geogap_diag.get("gap_active", False) else "FAIL"
             logger.info(
                 "  Geogap:   gap=%.4f  E_clean=%.4f  E_perturb=%.4f  margin=%.2f  %s",
-                gap_v, e_clean, e_pert, geogap_margin, status,
+                gap_v,
+                e_clean,
+                e_pert,
+                geogap_margin,
+                status,
             )
 
         # ── balance (before Pack-C for readability) ─────────────────────────
@@ -646,12 +710,17 @@ class DiagnosticLogger:
                 parts = "  ".join(f"{n}={v:.3f}" for n, v in _absmeans.items())
                 logger.info(
                     "  Balance:  loss=%.4f  weighted=%.4f(x%.1f)  |E|: %s",
-                    loss_balance, lambda_balance * loss_balance, lambda_balance, parts,
+                    loss_balance,
+                    lambda_balance * loss_balance,
+                    lambda_balance,
+                    parts,
                 )
             else:
                 logger.info(
                     "  Balance:  loss=%.4f  weighted=%.4f(x%.1f)",
-                    loss_balance, lambda_balance * loss_balance, lambda_balance,
+                    loss_balance,
+                    lambda_balance * loss_balance,
+                    lambda_balance,
                 )
 
         # ── total loss + DSM ───────────────────────────────────────────────
@@ -664,12 +733,17 @@ class DiagnosticLogger:
                 _dm_s = f"{_dm:.4f}" if _dm is not None else "skip"
                 logger.info(
                     "  Loss:     total=%.4f  dsm=%.4f (std=%.4f  α=%s  mix=%s)",
-                    loss, loss_dsm, _ds, _da_s, _dm_s,
+                    loss,
+                    loss_dsm,
+                    _ds,
+                    _da_s,
+                    _dm_s,
                 )
             else:
                 logger.info(
                     "  Loss:     total=%.4f  dsm=%.4f",
-                    loss, loss_dsm,
+                    loss,
+                    loss_dsm,
                 )
         else:
             logger.info("  Loss:     total=%.4f", loss)
@@ -680,58 +754,70 @@ class DiagnosticLogger:
             g_pack_diag = gates.get("packing", 1.0)
             if pack_mod is not None:
                 try:
-                    from calphaebm.geometry.reconstruct import (
-                        nerf_reconstruct, coords_to_internal, extract_anchor,
-                    )
-                    import math as _math, random as _random
+                    import math as _math
+                    import random as _random
+
+                    from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
+
                     with torch.no_grad():
                         B_diag = R.shape[0]
                         t1 = B_diag // 3
                         t2 = (2 * B_diag) // 3
-                        R1, R2, R3       = R[:t1],   R[t1:t2],   R[t2:]
+                        R1, R2, R3 = R[:t1], R[t1:t2], R[t2:]
                         seq1, seq2, seq3 = seq[:t1], seq[t1:t2], seq[t2:]
-                        len1 = lengths[:t1]   if lengths is not None else None
+                        len1 = lengths[:t1] if lengths is not None else None
                         len2 = lengths[t1:t2] if lengths is not None else None
-                        len3 = lengths[t2:]   if lengths is not None else None
+                        len3 = lengths[t2:] if lengths is not None else None
 
                         e_clean1 = float((g_pack_diag * pack_mod(R1, seq1, lengths=len1)).mean().item())
                         e_clean2 = float((g_pack_diag * pack_mod(R2, seq2, lengths=len2)).mean().item())
                         e_clean3 = float((g_pack_diag * pack_mod(R3, seq3, lengths=len3)).mean().item())
-                        e_clean  = (e_clean1 + e_clean2 + e_clean3) / 3.0
+                        e_clean = (e_clean1 + e_clean2 + e_clean3) / 3.0
 
                         # Negative 1: sequence shuffle (first third)
                         shuffled_idx = torch.randperm(seq1.shape[0], device=seq1.device)
-                        e_shuf   = float((g_pack_diag * pack_mod(R1, seq1[shuffled_idx], lengths=len1)).mean().item())
+                        e_shuf = float((g_pack_diag * pack_mod(R1, seq1[shuffled_idx], lengths=len1)).mean().item())
                         gap_shuf = e_shuf - e_clean1
-                        ok_shuf  = "OK" if gap_shuf >= pack_contrastive_margin else "FAIL"
+                        ok_shuf = "OK" if gap_shuf >= pack_contrastive_margin else "FAIL"
 
                         # Negative 2: IC noise (second third)
-                        sigma = _math.exp(_random.uniform(
-                            _math.log(0.02), _math.log(0.30)
-                        ))
+                        sigma = _math.exp(_random.uniform(_math.log(0.02), _math.log(0.30)))
                         theta, phi = coords_to_internal(R2)
-                        anchor     = extract_anchor(R2)
+                        anchor = extract_anchor(R2)
                         theta_n = (theta + 0.161 * sigma * torch.randn_like(theta)).clamp(0.01, _math.pi - 0.01)
-                        phi_n   = (phi + sigma * torch.randn_like(phi))
-                        phi_n   = (phi_n + _math.pi) % (2 * _math.pi) - _math.pi
-                        R_neg   = nerf_reconstruct(theta_n, phi_n, anchor)
-                        e_ic    = float((g_pack_diag * pack_mod(R_neg, seq2, lengths=len2)).mean().item())
-                        gap_ic  = e_ic - e_clean2
-                        ok_ic   = "OK" if gap_ic >= pack_contrastive_margin else "FAIL"
+                        phi_n = phi + sigma * torch.randn_like(phi)
+                        phi_n = (phi_n + _math.pi) % (2 * _math.pi) - _math.pi
+                        R_neg = nerf_reconstruct(theta_n, phi_n, anchor)
+                        e_ic = float((g_pack_diag * pack_mod(R_neg, seq2, lengths=len2)).mean().item())
+                        gap_ic = e_ic - e_clean2
+                        ok_ic = "OK" if gap_ic >= pack_contrastive_margin else "FAIL"
 
                         # Negative 3: geometry shuffle (third third)
                         perm_idx = torch.randperm(R3.shape[0], device=R3.device)
-                        e_pert   = float((g_pack_diag * pack_mod(R3[perm_idx], seq3, lengths=len3[perm_idx] if len3 is not None else None)).mean().item())
+                        e_pert = float(
+                            (
+                                g_pack_diag
+                                * pack_mod(R3[perm_idx], seq3, lengths=len3[perm_idx] if len3 is not None else None)
+                            )
+                            .mean()
+                            .item()
+                        )
                         gap_pert = e_pert - e_clean3
-                        ok_pert  = "OK" if gap_pert >= pack_contrastive_margin else "FAIL"
+                        ok_pert = "OK" if gap_pert >= pack_contrastive_margin else "FAIL"
 
                     logger.info(
                         "  Pack-C:   <E_clean>=%.4f  E_shuf=%.4f(gap=%.3f %s)  "
                         "E_ic=%.4f(gap=%.3f %s)  E_pert=%.4f(gap=%.3f %s)  margin=%.2f",
                         e_clean,
-                        e_shuf, gap_shuf, ok_shuf,
-                        e_ic, gap_ic, ok_ic,
-                        e_pert, gap_pert, ok_pert,
+                        e_shuf,
+                        gap_shuf,
+                        ok_shuf,
+                        e_ic,
+                        gap_ic,
+                        ok_ic,
+                        e_pert,
+                        gap_pert,
+                        ok_pert,
                         pack_contrastive_margin,
                     )
                 except Exception as e_diag:
@@ -741,7 +827,10 @@ class DiagnosticLogger:
         if loss_basin is not None and lambda_basin > 0.0:
             logger.info(
                 "  Basin:    loss=%.4f  weighted=%.4f(x%.1f)  margin=%.2f",
-                loss_basin, lambda_basin * loss_basin, lambda_basin, basin_margin,
+                loss_basin,
+                lambda_basin * loss_basin,
+                lambda_basin,
+                basin_margin,
             )
 
         # ── native gap ────────────────────────────────────────────────────────
@@ -753,36 +842,44 @@ class DiagnosticLogger:
                         "  Native:   loss=%.4f  weighted=%.4f(x%.1f)  "
                         "E_native=%.4f  E_pert=%.4f  gap=%.3f(min=%.3f)  "
                         "sigma=%.3f  T=%.2f  [continuous]",
-                        loss_native, lambda_native * loss_native, lambda_native,
+                        loss_native,
+                        lambda_native * loss_native,
+                        lambda_native,
                         native_diag.get("E_native", 0.0),
-                        native_diag.get("E_pert",   0.0),
+                        native_diag.get("E_pert", 0.0),
                         native_diag.get("gap_mean", 0.0),
-                        native_diag.get("gap_min",  0.0),
-                        native_diag.get("sigma",    0.0),
-                        native_diag.get("T_mean",   0.0),
+                        native_diag.get("gap_min", 0.0),
+                        native_diag.get("sigma", 0.0),
+                        native_diag.get("T_mean", 0.0),
                     )
                 else:
                     ok_str = "OK" if native_diag.get("ok", False) else "FAIL"
                     logger.info(
                         "  Native:   loss=%.4f  weighted=%.4f(x%.1f)  "
                         "E_native=%.4f  E_pert=%.4f  gap=%.3f(min=%.3f)  sigma=%.3f  margin=%.2f  %s",
-                        loss_native, lambda_native * loss_native, lambda_native,
+                        loss_native,
+                        lambda_native * loss_native,
+                        lambda_native,
                         native_diag.get("E_native", 0.0),
-                        native_diag.get("E_pert",   0.0),
+                        native_diag.get("E_pert", 0.0),
                         native_diag.get("gap_mean", 0.0),
-                        native_diag.get("gap_min",  0.0),
-                        native_diag.get("sigma",    0.0),
+                        native_diag.get("gap_min", 0.0),
+                        native_diag.get("sigma", 0.0),
                         native_margin,
                         ok_str,
                     )
             else:
                 logger.info(
                     "  Native:   loss=%.4f  weighted=%.4f(x%.1f)",
-                    loss_native, lambda_native * loss_native, lambda_native,
+                    loss_native,
+                    lambda_native * loss_native,
+                    lambda_native,
                 )
 
         # ── ELT losses (Q-funnel + Z-score + Frustration) ────────────────────
-        _any_elt = (loss_funnel is not None or loss_zscore is not None or loss_elt_gap is not None or loss_frust is not None)
+        _any_elt = (
+            loss_funnel is not None or loss_zscore is not None or loss_elt_gap is not None or loss_frust is not None
+        )
         if _any_elt:
             parts_elt = []
             if loss_funnel is not None:
@@ -809,7 +906,9 @@ class DiagnosticLogger:
                         elt_diag.get("Q_decoy_max", 0.0),
                         elt_diag.get("Q_decoy_mean", 0.0),
                         elt_diag.get("mean_slope", 0.0),
-                        af_pct, n_anti, n_pairs,
+                        af_pct,
+                        n_anti,
+                        n_pairs,
                     )
                 # Z-score diagnostics (only when loss is active)
                 if "Z_mean" in elt_diag:
@@ -825,8 +924,7 @@ class DiagnosticLogger:
                 # Frustration diagnostics (only when loss is active)
                 if "f_mean" in elt_diag and lambda_frustration > 0:
                     logger.info(
-                        "  Frust:    f=%.2f [%.2f,%.2f]  frac_frustrated=%.1f%%  "
-                        "E_native/res=%.4f  E_perm/res=%.4f",
+                        "  Frust:    f=%.2f [%.2f,%.2f]  frac_frustrated=%.1f%%  " "E_native/res=%.4f  E_perm/res=%.4f",
                         elt_diag.get("f_mean", 0.0),
                         elt_diag.get("f_min", 0.0),
                         elt_diag.get("f_max", 0.0),
@@ -840,9 +938,11 @@ class DiagnosticLogger:
             _e_nat = e_native_depth if e_native_depth is not None else 0.0
             logger.info(
                 "  Depth:    loss=%.4f(x%.1f=%.4f)  E_native/res=%.4f  target=%.2f",
-                loss_native_depth, lambda_native_depth,
+                loss_native_depth,
+                lambda_native_depth,
                 lambda_native_depth * loss_native_depth,
-                _e_nat, target_native_depth,
+                _e_nat,
+                target_native_depth,
             )
 
         # ── EMA summary (smoothed trend — more meaningful than single-batch) ──
@@ -851,21 +951,21 @@ class DiagnosticLogger:
             # Line 1: core metrics
             line1 = []
             _core = [
-                ("total",        "loss",    ".2f"),
-                ("dsm",          "DSM",     ".3f"),
-                ("dsm_std",      "DSM_s",   ".3f"),
-                ("dsm_alpha",    "DSM_α",   ".3f"),
-                ("dsm_mixed",    "DSM_m",   ".3f"),
-                ("e_native",     "E_nat",   ".3f"),
-                ("e_decoy",      "E_dec",   ".3f"),
-                ("z_score",      "Z̄",       ".2f"),
-                ("elt_gap",      "gap",     ".3f"),
-                ("slope",        "slope",   ".3f"),
-                ("anti_funnel",  "af%",     ".0f"),
-                ("frac_negative","neg%",    ".0f"),
-                ("basin_gap",    "bgap",    ".2f"),
-                ("frust",        "f̄",       ".1f"),
-                ("frac_frust",   "ff%",     ".1f"),
+                ("total", "loss", ".2f"),
+                ("dsm", "DSM", ".3f"),
+                ("dsm_std", "DSM_s", ".3f"),
+                ("dsm_alpha", "DSM_α", ".3f"),
+                ("dsm_mixed", "DSM_m", ".3f"),
+                ("e_native", "E_nat", ".3f"),
+                ("e_decoy", "E_dec", ".3f"),
+                ("z_score", "Z̄", ".2f"),
+                ("elt_gap", "gap", ".3f"),
+                ("slope", "slope", ".3f"),
+                ("anti_funnel", "af%", ".0f"),
+                ("frac_negative", "neg%", ".0f"),
+                ("basin_gap", "bgap", ".2f"),
+                ("frust", "f̄", ".1f"),
+                ("frac_frust", "ff%", ".1f"),
             ]
             for key, label, fmt in _core:
                 if key in ema:
@@ -876,10 +976,10 @@ class DiagnosticLogger:
             # Line 2: energy mix
             line2 = []
             _mix = [
-                ("E%local",      "E%loc",   ".0f"),
-                ("E%repulsion",  "E%rep",   ".0f"),
-                ("E%secondary",  "E%ss",    ".0f"),
-                ("E%packing",    "E%pack",  ".0f"),
+                ("E%local", "E%loc", ".0f"),
+                ("E%repulsion", "E%rep", ".0f"),
+                ("E%secondary", "E%ss", ".0f"),
+                ("E%packing", "E%pack", ".0f"),
             ]
             for key, label, fmt in _mix:
                 if key in ema:
@@ -912,8 +1012,12 @@ class DiagnosticLogger:
             logger.info(
                 "  Funnel:   slope=%.3f  Q_af=%.1f%% (%d/%d)  dRMSD_af=%.1f%% (%d/%d)",
                 fn.get("mean_slope", 0.0),
-                fn.get("q_af", 0.0), fn.get("n_qf_anti", 0), fn.get("n_qf_pairs", 0),
-                fn.get("drmsd_af", 0.0), fn.get("n_dr_anti", 0), fn.get("n_dr_pairs", 0),
+                fn.get("q_af", 0.0),
+                fn.get("n_qf_anti", 0),
+                fn.get("n_qf_pairs", 0),
+                fn.get("drmsd_af", 0.0),
+                fn.get("n_dr_anti", 0),
+                fn.get("n_dr_pairs", 0),
             )
 
         # ── learnable buffer drift (only if any are active) ──────────────────
@@ -944,9 +1048,7 @@ class DiagnosticLogger:
             if mod is not None:
                 E = mod(R, seq, lengths=lengths)
                 already = _is_internally_normalized(mod)
-                metrics[f"{name}_per_res_like"] = float(
-                    (E if already else E / float(max(L, 1))).mean().item()
-                )
+                metrics[f"{name}_per_res_like"] = float((E if already else E / float(max(L, 1))).mean().item())
                 metrics[f"{name}_mean"] = float(E.mean().item())
         E_total = self.model(R, seq, lengths=lengths)
         metrics["total_model_units_mean"] = float(E_total.mean().item())

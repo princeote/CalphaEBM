@@ -15,25 +15,25 @@ DEFAULT_CLUSTER_METHOD = "gmm"  # 'gmm' or 'kmeans'
 DEFAULT_RANDOM_STATE = 42
 
 # Data loading / sampling
-DEFAULT_MAX_PDBS = 10000        # limit number of PDB IDs processed
-DEFAULT_MAX_CHAINS = None        # optional: limit number of chains processed (None = no limit)
-DEFAULT_SAMPLE_EVERY = 10        # sample every N residues to reduce local correlation
+DEFAULT_MAX_PDBS = 10000  # limit number of PDB IDs processed
+DEFAULT_MAX_CHAINS = None  # optional: limit number of chains processed (None = no limit)
+DEFAULT_SAMPLE_EVERY = 10  # sample every N residues to reduce local correlation
 
 # Clustering feature options
-DEFAULT_CIRCULAR_PHI = True      # use [sin(phi), cos(phi)] instead of phi directly
-DEFAULT_STANDARDIZE = True       # standardize features before clustering
+DEFAULT_CIRCULAR_PHI = True  # use [sin(phi), cos(phi)] instead of phi directly
+DEFAULT_STANDARDIZE = True  # standardize features before clustering
 
 # Histogram / binning parameters (must match backbone analysis convention)
-THETA_MIN  = 50.0
-THETA_MAX  = 170.0
-THETA_BINS = 24    # 24 bins -> 25 edges, step = 5°
+THETA_MIN = 50.0
+THETA_MAX = 170.0
+THETA_BINS = 24  # 24 bins -> 25 edges, step = 5°
 
-PHI_MIN  = -180.0
-PHI_MAX  =  180.0
-PHI_BINS = 36      # 36 bins -> 37 edges, step = 10°
+PHI_MIN = -180.0
+PHI_MAX = 180.0
+PHI_BINS = 36  # 36 bins -> 37 edges, step = 10°
 
-DEFAULT_SMOOTH_SIGMA = 2.0       # Gaussian smoothing sigma in bins
-DEFAULT_PSEUDOCOUNT  = 1e-6      # pseudocount for histogram stability
+DEFAULT_SMOOTH_SIGMA = 2.0  # Gaussian smoothing sigma in bins
+DEFAULT_PSEUDOCOUNT = 1e-6  # pseudocount for histogram stability
 
 # Plotting
 PLOT_DPI = 300

@@ -15,7 +15,7 @@ Design goals:
 
 from __future__ import annotations
 
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import torch
 
@@ -92,8 +92,8 @@ def topk_nonbonded_pairs(
     # FIX: use safe_norm instead of torch.cdist to avoid NaN second-order gradients.
     # torch.cdist gradient is x/||x|| which is 0/0 at coincident atoms; the second
     # derivative 1/||x||³ blows up → NaN under create_graph=True.
-    diff = R[:, :, None, :] - R[:, None, :, :]   # (B, L, L, 3)
-    D = safe_norm(diff, dim=-1)                    # (B, L, L)
+    diff = R[:, :, None, :] - R[:, None, :, :]  # (B, L, L, 3)
+    D = safe_norm(diff, dim=-1)  # (B, L, L)
 
     # Exclusion mask (L, L) - broadcastable to batch
     exclusion_mask = _make_exclusion_mask(L=L, exclude=exclude, device=device)  # (L, L)

@@ -28,11 +28,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
 
 def lbfgs_minimize(
@@ -100,6 +96,7 @@ def lbfgs_minimize(
     E_prev = E_pdb
 
     for step_i in range(1, max_calls + 1):
+
         def closure():
             optimizer.zero_grad()
             theta_c = theta_opt.clamp(0.01, math.pi - 0.01)

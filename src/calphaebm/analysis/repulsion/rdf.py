@@ -12,11 +12,11 @@ from calphaebm.utils.logging import get_logger
 from .config import (
     PMF_MIN_G,
     PMF_SMOOTH_SIGMA,
-    RDF_TAIL_START_A,
     RDF_TAIL_END_A,
-    WALL_SPARSE_N,
+    RDF_TAIL_START_A,
     WALL_DENSE_N,
     WALL_SMOOTH_SIGMA_BINS,
+    WALL_SPARSE_N,
 )
 
 logger = get_logger()
@@ -30,12 +30,12 @@ class RDFResult:
     pmf is dimensionless (kBT units) when computed as -log(g).
     """
 
-    r_edges: np.ndarray     # (nbins+1,)
-    r_centers: np.ndarray   # (nbins,)
-    counts: np.ndarray      # (nbins,)
-    g_r: np.ndarray         # (nbins,)
-    pmf: np.ndarray         # (nbins,)
-    tail_mean: float        # scalar used to normalize g(r) -> 1 in the tail
+    r_edges: np.ndarray  # (nbins+1,)
+    r_centers: np.ndarray  # (nbins,)
+    counts: np.ndarray  # (nbins,)
+    g_r: np.ndarray  # (nbins,)
+    pmf: np.ndarray  # (nbins,)
+    tail_mean: float  # scalar used to normalize g(r) -> 1 in the tail
 
 
 def compute_rdf_from_counts(

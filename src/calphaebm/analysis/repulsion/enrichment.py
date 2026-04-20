@@ -7,27 +7,23 @@ import numpy as np
 from scipy.special import erfc  # FIXED: import erfc from scipy.special
 
 from calphaebm.utils.logging import get_logger
-from .config import (
-    ENRICH_SHUFFLES,
-    EMPIRICAL_P_FOR_LOW_COUNTS,
-    EMPIRICAL_COUNT_THRESHOLD,
-    FDR_Q,
-)
+
+from .config import EMPIRICAL_COUNT_THRESHOLD, EMPIRICAL_P_FOR_LOW_COUNTS, ENRICH_SHUFFLES, FDR_Q
 
 logger = get_logger()
 
 
 @dataclass(frozen=True)
 class EnrichmentResult:
-    observed: Dict[str, np.ndarray]          # (20,20) counts per bin
-    expected: Dict[str, np.ndarray]          # (20,20) expected counts per bin
-    oe: Dict[str, np.ndarray]                # (20,20) observed/expected
-    log_oe: Dict[str, np.ndarray]            # (20,20) log(observed/expected)
-    z: Dict[str, np.ndarray]                 # (20,20) z-score from shuffle dist
-    p: Dict[str, np.ndarray]                 # (20,20) p-values (possibly empirical for low counts)
-    q: Dict[str, np.ndarray]                 # (20,20) BH-FDR q-values
-    shuffle_mean: Dict[str, np.ndarray]      # (20,20)
-    shuffle_std: Dict[str, np.ndarray]       # (20,20)
+    observed: Dict[str, np.ndarray]  # (20,20) counts per bin
+    expected: Dict[str, np.ndarray]  # (20,20) expected counts per bin
+    oe: Dict[str, np.ndarray]  # (20,20) observed/expected
+    log_oe: Dict[str, np.ndarray]  # (20,20) log(observed/expected)
+    z: Dict[str, np.ndarray]  # (20,20) z-score from shuffle dist
+    p: Dict[str, np.ndarray]  # (20,20) p-values (possibly empirical for low counts)
+    q: Dict[str, np.ndarray]  # (20,20) BH-FDR q-values
+    shuffle_mean: Dict[str, np.ndarray]  # (20,20)
+    shuffle_std: Dict[str, np.ndarray]  # (20,20)
 
 
 def _bh_fdr(pvals: np.ndarray, q: float = 0.05) -> np.ndarray:
@@ -138,11 +134,11 @@ def compute_contact_enrichment(
 
         if empirical_p_for_low_counts:
             # empirical two-sided p from shuffle distribution, for entries with obs < threshold
-            low_mask = (O < float(empirical_count_threshold))
+            low_mask = O < float(empirical_count_threshold)
             if np.any(low_mask):
                 # for each (i,j) in low_mask, compute empirical tail areas
                 # (vectorized over shuffles but indexed per cell)
-                for (i, j) in zip(*np.where(low_mask)):
+                for i, j in zip(*np.where(low_mask)):
                     sh = shuffle_all[:, i, j]
                     obs_ij = O[i, j]
                     p_ge = float(np.mean(sh >= obs_ij))
@@ -153,7 +149,7 @@ def compute_contact_enrichment(
         # normal approx for remaining entries (or all if empirical disabled)
         # two-sided p ~= 2*(1 - Phi(|z|))
         # implement with erfc for numeric stability
-        rem_mask = (P == 1.0)  # still default => not set by empirical
+        rem_mask = P == 1.0  # still default => not set by empirical
         if np.any(rem_mask):
             zz = np.abs(Z[rem_mask]) / np.sqrt(2.0)
             # FIXED: use erfc from scipy.special

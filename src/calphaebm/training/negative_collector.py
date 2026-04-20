@@ -26,19 +26,19 @@ Usage:
 
 from __future__ import annotations
 
+import math
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
-import math
-import time
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch
 from calphaebm.evaluation.metrics.contacts import native_contact_set, q_smooth
 from calphaebm.evaluation.metrics.rg import radius_of_gyration
+from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch
 from calphaebm.simulation.backends import get_simulator
 from calphaebm.utils.logging import get_logger
 
@@ -64,8 +64,12 @@ def _worker_fn(task: tuple) -> list:
         return []
     try:
         return _WORKER_COLLECTOR._collect_single(
-            R_native=R_i, seq=seq_i, beta=beta, n_steps=n_steps,
-            pdb_id=pdb_id, chain_id=chain_id,
+            R_native=R_i,
+            seq=seq_i,
+            beta=beta,
+            n_steps=n_steps,
+            pdb_id=pdb_id,
+            chain_id=chain_id,
         )
     except Exception as e:
         # print() reaches stdout in forked workers; logger may not
@@ -78,40 +82,44 @@ def _worker_fn(task: tuple) -> list:
 # Failure categories
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class FailureCategory(str, Enum):
     """Categories of null-space failure modes discovered during Langevin."""
-    COMPACTED = "compacted"               # Rg dropped below threshold
-    SWOLLEN = "swollen"                   # Rg expanded beyond threshold
-    FALSE_BASIN = "false_basin"           # low Q, lower energy than native
-    DRIFT_PRESERVED = "drift_preserved"   # high RMSD but contacts preserved
-    FROZEN = "frozen"                     # RMSF too low (over-stabilized)
-    SS_LOSS = "ss_loss"                   # secondary structure content changed
-    MISFOLD = "misfold"                   # high RMSD + low Q (global unfolding/misfold)
+
+    COMPACTED = "compacted"  # Rg dropped below threshold
+    SWOLLEN = "swollen"  # Rg expanded beyond threshold
+    FALSE_BASIN = "false_basin"  # low Q, lower energy than native
+    DRIFT_PRESERVED = "drift_preserved"  # high RMSD but contacts preserved
+    FROZEN = "frozen"  # RMSF too low (over-stabilized)
+    SS_LOSS = "ss_loss"  # secondary structure content changed
+    MISFOLD = "misfold"  # high RMSD + low Q (global unfolding/misfold)
 
 
 @dataclass
 class NegativeExample:
     """A single negative (failure) configuration paired with its native."""
+
     pdb_id: str
     chain_id: str
-    seq: torch.Tensor           # (L,) int
-    R_native: torch.Tensor      # (L, 3) native coordinates
-    R_negative: torch.Tensor    # (L, 3) failure configuration
+    seq: torch.Tensor  # (L,) int
+    R_native: torch.Tensor  # (L, 3) native coordinates
+    R_negative: torch.Tensor  # (L, 3) failure configuration
     category: FailureCategory
     # Diagnostics
-    E_native: float             # energy at native
-    E_negative: float           # energy at failure config
-    rg_ratio: float             # Rg(negative) / Rg_native
-    q: float                    # Q(negative, native)
-    rmsd: float                 # RMSD to native
-    rmsf: float                 # running RMSF at collection point
-    step: int                   # Langevin step where collected
-    drmsd: float = 0.0          # full pairwise dRMSD to native (Å)
+    E_native: float  # energy at native
+    E_negative: float  # energy at failure config
+    rg_ratio: float  # Rg(negative) / Rg_native
+    q: float  # Q(negative, native)
+    rmsd: float  # RMSD to native
+    rmsf: float  # running RMSF at collection point
+    step: int  # Langevin step where collected
+    drmsd: float = 0.0  # full pairwise dRMSD to native (Å)
 
 
 @dataclass
 class CollectionStats:
     """Summary statistics from a collection run."""
+
     n_proteins: int = 0
     n_steps: int = 0
     n_negatives: int = 0
@@ -135,6 +143,7 @@ class CollectionStats:
 # ─────────────────────────────────────────────────────────────────────────────
 # Secondary structure assignment from Cα geometry
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _assign_ss_from_ca(R: np.ndarray) -> np.ndarray:
     """Assign secondary structure from Cα coordinates using virtual angles.
@@ -186,6 +195,7 @@ def _ss_change(R_native: np.ndarray, R_other: np.ndarray) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main collector
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class NegativeCollector:
     """Collect failure-mode configurations from CG Langevin dynamics.
@@ -258,12 +268,12 @@ class NegativeCollector:
 
     def _flory_rg(self, L: int, r0: float = 2.0, nu: float = 0.38) -> float:
         """Expected Rg from Flory scaling."""
-        return r0 * (L ** nu)
+        return r0 * (L**nu)
 
     def _collect_single(
         self,
-        R_native: torch.Tensor,   # (1, L, 3)
-        seq: torch.Tensor,        # (1, L)
+        R_native: torch.Tensor,  # (1, L, 3)
+        seq: torch.Tensor,  # (1, L)
         beta: float,
         n_steps: int,
         pdb_id: str = "?",
@@ -277,9 +287,7 @@ class NegativeCollector:
         rg_flory = self._flory_rg(L)
 
         # Native contacts for Q
-        ni_nat, nj_nat, d0_nat = native_contact_set(
-            R_nat_np, cutoff=self.contact_cutoff, exclude=self.exclude
-        )
+        ni_nat, nj_nat, d0_nat = native_contact_set(R_nat_np, cutoff=self.contact_cutoff, exclude=self.exclude)
 
         # Native energy (raw PDB)
         len_b = torch.tensor([L], device=self.device)
@@ -295,6 +303,7 @@ class NegativeCollector:
 
         # ── Minimize PDB structure via L-BFGS in IC space ──────────
         from calphaebm.simulation.minimize import lbfgs_minimize
+
         _min_result = lbfgs_minimize(self.model, R_native, seq, lengths=len_b)
         R_min = _min_result["R_min"]
         E_minimized = _min_result["E_minimized"]
@@ -305,8 +314,14 @@ class NegativeCollector:
         _d_min = np.sqrt(((R_min_np[:, None] - R_min_np[None, :]) ** 2).sum(-1))
         _triu = np.triu_indices(L, k=1)
         drmsd_min = float(np.sqrt(np.mean((_d_nat[_triu] - _d_min[_triu]) ** 2)))
-        logger.info("    [%s] minimized in %d steps: ΔE=%.3f  dRMSD=%.2f  maxF=%.1f",
-                     pdb_id, min_steps_taken, E_minimized - E_native, drmsd_min, max_force)
+        logger.info(
+            "    [%s] minimized in %d steps: ΔE=%.3f  dRMSD=%.2f  maxF=%.1f",
+            pdb_id,
+            min_steps_taken,
+            E_minimized - E_native,
+            drmsd_min,
+            max_force,
+        )
 
         negatives = []
 
@@ -320,8 +335,12 @@ class NegativeCollector:
             # Start dynamics from minimized structure (model's own minimum)
             sim = get_simulator(
                 name=self.sampler,
-                model=self.model, seq=seq, R_init=R_min.detach(),
-                step_size=1.0 / (10.0 * float(L) ** 2), beta=beta, force_cap=self.force_cap,
+                model=self.model,
+                seq=seq,
+                R_init=R_min.detach(),
+                step_size=1.0 / (10.0 * float(L) ** 2),
+                beta=beta,
+                force_cap=self.force_cap,
                 lengths=len_b,
             )
             R_current = R_min.detach()
@@ -336,24 +355,32 @@ class NegativeCollector:
 
                     # MALA early stop: if acceptance < 10% after 10K steps,
                     # protein is frozen — no point running 90K more steps
-                    if (self.sampler == "mala" and step_i == 10000
-                            and hasattr(sim, 'acceptance_rate')
-                            and sim.acceptance_rate < 0.10):
+                    if (
+                        self.sampler == "mala"
+                        and step_i == 10000
+                        and hasattr(sim, "acceptance_rate")
+                        and sim.acceptance_rate < 0.10
+                    ):
                         logger.info(
                             "    [%s] MALA early stop: %.1f%% acceptance at step 10K — skipping",
-                            pdb_id, sim.acceptance_rate * 100,
+                            pdb_id,
+                            sim.acceptance_rate * 100,
                         )
                         break
 
                     # Progress log every 10K steps
                     if step_i % 10000 == 0 and step_i < n_steps:
                         _acc_str = ""
-                        if hasattr(sim, 'acceptance_rate'):
+                        if hasattr(sim, "acceptance_rate"):
                             _acc_str = f"  accept={sim.acceptance_rate*100:.1f}%"
                         logger.info(
                             "    [%s] step %dK/%dK  neg=%d/8  β=%.0f%s",
-                            pdb_id, step_i // 1000, n_steps // 1000,
-                            len(negatives), beta, _acc_str,
+                            pdb_id,
+                            step_i // 1000,
+                            n_steps // 1000,
+                            len(negatives),
+                            beta,
+                            _acc_str,
                         )
 
                     R_snap = R_current[0, :L].detach().cpu().numpy()
@@ -398,16 +425,12 @@ class NegativeCollector:
                     if category is not None:
                         # Full dRMSD — reuse R_nat_np and R_current already available
                         _R_neg_np = R_current[0, :L].detach().cpu().numpy()
-                        _D_nat = np.sqrt((
-                            (R_nat_np[:, None] - R_nat_np[None, :]) ** 2
-                        ).sum(-1))
-                        _D_neg = np.sqrt((
-                            (_R_neg_np[:, None] - _R_neg_np[None, :]) ** 2
-                        ).sum(-1))
+                        _D_nat = np.sqrt(((R_nat_np[:, None] - R_nat_np[None, :]) ** 2).sum(-1))
+                        _D_neg = np.sqrt(((_R_neg_np[:, None] - _R_neg_np[None, :]) ** 2).sum(-1))
                         _triu = np.triu_indices(L, k=4)
-                        _drmsd_val = float(np.sqrt(
-                            np.mean((_D_nat[_triu] - _D_neg[_triu]) ** 2)
-                        )) if len(_triu[0]) > 0 else 0.0
+                        _drmsd_val = (
+                            float(np.sqrt(np.mean((_D_nat[_triu] - _D_neg[_triu]) ** 2))) if len(_triu[0]) > 0 else 0.0
+                        )
 
                         neg = NegativeExample(
                             pdb_id=pdb_id,
@@ -431,10 +454,17 @@ class NegativeCollector:
                         logger.info(
                             "    [%s] %s at step %d (%d/%d): "
                             "Rg=%.0f%%  Q=%.3f  RMSD=%.1f  RMSF=%.2f  E=%.3f (min=%.3f)",
-                            pdb_id, category.value, step_i,
-                            len(negatives), self.max_negatives_per_protein,
-                            rg_ratio * 100, q_val, rmsd_val, rmsf_val,
-                            E_snap, E_minimized,
+                            pdb_id,
+                            category.value,
+                            step_i,
+                            len(negatives),
+                            self.max_negatives_per_protein,
+                            rg_ratio * 100,
+                            q_val,
+                            rmsd_val,
+                            rmsf_val,
+                            E_snap,
+                            E_minimized,
                         )
 
         except Exception as e:
@@ -444,42 +474,58 @@ class NegativeCollector:
 
         # ── Final structural summary for every protein ──────────────
         try:
-            if sim is not None and 'R_current' in dir():
+            if sim is not None and "R_current" in dir():
                 _R_final = R_current[0, :L].detach().cpu().numpy()
-                _q_fin   = q_smooth(_R_final, ni_nat, nj_nat, d0_nat)
-                _rm_fin  = rmsd_kabsch(_R_final, R_nat_np)
-                _rg_fin  = radius_of_gyration(_R_final)
-                _rg_pct  = _rg_fin / rg_native * 100 if rg_native > 0 else 0.0
-                _D_nat   = np.sqrt(((R_nat_np[:, None] - R_nat_np[None, :])**2).sum(-1))
-                _D_fin   = np.sqrt(((_R_final[:, None] - _R_final[None, :])**2).sum(-1))
+                _q_fin = q_smooth(_R_final, ni_nat, nj_nat, d0_nat)
+                _rm_fin = rmsd_kabsch(_R_final, R_nat_np)
+                _rg_fin = radius_of_gyration(_R_final)
+                _rg_pct = _rg_fin / rg_native * 100 if rg_native > 0 else 0.0
+                _D_nat = np.sqrt(((R_nat_np[:, None] - R_nat_np[None, :]) ** 2).sum(-1))
+                _D_fin = np.sqrt(((_R_final[:, None] - _R_final[None, :]) ** 2).sum(-1))
                 _triu_k4 = np.triu_indices(L, k=4)
-                _dr_fin  = float(np.sqrt(np.mean((_D_nat[_triu_k4] - _D_fin[_triu_k4])**2))) if len(_triu_k4[0]) > 0 else 0.0
-                _steps_run = sim._n_total if hasattr(sim, '_n_total') else n_steps
+                _dr_fin = (
+                    float(np.sqrt(np.mean((_D_nat[_triu_k4] - _D_fin[_triu_k4]) ** 2))) if len(_triu_k4[0]) > 0 else 0.0
+                )
+                _steps_run = sim._n_total if hasattr(sim, "_n_total") else n_steps
                 logger.info(
                     "    [%s] DONE  β=%.0f  L=%d  steps=%d  "
                     "Q=%.3f  RMSD=%.2fA  dRMSD=%.2fA  Rg=%.0f%%  "
                     "failures=%d/%d",
-                    pdb_id, beta, L, _steps_run,
-                    _q_fin, _rm_fin, _dr_fin, _rg_pct,
-                    len(negatives), self.max_negatives_per_protein,
+                    pdb_id,
+                    beta,
+                    L,
+                    _steps_run,
+                    _q_fin,
+                    _rm_fin,
+                    _dr_fin,
+                    _rg_pct,
+                    len(negatives),
+                    self.max_negatives_per_protein,
                 )
         except Exception as _e:
             logger.debug("Final summary failed for %s: %s", pdb_id, _e)
 
         # Log MALA stats for every protein
-        if self.sampler == "mala" and sim is not None and hasattr(sim, 'acceptance_rate'):
+        if self.sampler == "mala" and sim is not None and hasattr(sim, "acceptance_rate"):
             acc = sim.acceptance_rate * 100
             n_acc = sim._n_accepted
             n_tot = sim._n_total
             n_rej = n_tot - n_acc
             logger.info(
                 "    [%s] MALA: accept=%d/%d (%.1f%%)  reject=%d  step_size=%.1e  beta=%.0f",
-                pdb_id, n_acc, n_tot, acc, n_rej, 1.0 / (10.0 * float(L) ** 2), beta,
+                pdb_id,
+                n_acc,
+                n_tot,
+                acc,
+                n_rej,
+                1.0 / (10.0 * float(L) ** 2),
+                beta,
             )
             if acc < 20:
                 logger.warning(
                     "    [%s] MALA acceptance %.1f%% — step_size may be too large",
-                    pdb_id, acc,
+                    pdb_id,
+                    acc,
                 )
 
         return negatives
@@ -552,20 +598,20 @@ class NegativeCollector:
                 # Filter by max length — long chains dominate collection time
                 if L > max_collect_len:
                     continue
-                all_structures.append((R_batch[i:i+1, :L], seq_batch[i:i+1, :L], pdb_id, chain_id, L))
+                all_structures.append((R_batch[i : i + 1, :L], seq_batch[i : i + 1, :L], pdb_id, chain_id, L))
 
         # Randomly sample n_proteins (different set each round)
         rng = _rng.Random(seed)
         n_sample = min(n_proteins, len(all_structures))
         selected = rng.sample(all_structures, n_sample)
 
-        logger.info("  Randomly selected %d/%d proteins (seed=%s, workers=%d)",
-                     n_sample, len(all_structures), seed, n_workers)
+        logger.info(
+            "  Randomly selected %d/%d proteins (seed=%s, workers=%d)", n_sample, len(all_structures), seed, n_workers
+        )
 
         # Build tasks: (R_i, seq_i, beta, n_steps, pdb_id, chain_id)
         tasks = [
-            (R_i.cpu(), seq_i.cpu(), beta, n_steps, pdb_id, chain_id)
-            for (R_i, seq_i, pdb_id, chain_id, L) in selected
+            (R_i.cpu(), seq_i.cpu(), beta, n_steps, pdb_id, chain_id) for (R_i, seq_i, pdb_id, chain_id, L) in selected
         ]
 
         if n_workers > 1:
@@ -576,12 +622,15 @@ class NegativeCollector:
             for idx, task in enumerate(tasks):
                 R_i, seq_i, beta_t, n_steps_t, pdb_id, chain_id = task
                 L = R_i.shape[1]
-                logger.info("  [%d/%d] %s chain %s (L=%d)...",
-                            idx + 1, n_sample, pdb_id, chain_id, L)
+                logger.info("  [%d/%d] %s chain %s (L=%d)...", idx + 1, n_sample, pdb_id, chain_id, L)
 
                 negs = self._collect_single(
-                    R_native=R_i, seq=seq_i, beta=beta_t, n_steps=n_steps_t,
-                    pdb_id=pdb_id, chain_id=chain_id,
+                    R_native=R_i,
+                    seq=seq_i,
+                    beta=beta_t,
+                    n_steps=n_steps_t,
+                    pdb_id=pdb_id,
+                    chain_id=chain_id,
                 )
                 all_negatives.extend(negs)
                 logger.info("    → %d negatives collected", len(negs))
@@ -590,9 +639,7 @@ class NegativeCollector:
         for neg in all_negatives:
             cat = neg.category.value
             stats.category_counts[cat] = stats.category_counts.get(cat, 0) + 1
-        stats.proteins_with_failures = len(set(
-            (n.pdb_id, n.chain_id) for n in all_negatives
-        ))
+        stats.proteins_with_failures = len(set((n.pdb_id, n.chain_id) for n in all_negatives))
         stats.n_proteins = n_sample
         stats.n_negatives = len(all_negatives)
         stats.wall_time_sec = time.time() - t0
@@ -617,6 +664,7 @@ class NegativeCollector:
         identical weights but no autograd history, making fork safe.
         """
         import copy
+
         import torch.multiprocessing as mp
 
         # Deep-copy model to shed autograd thread state from backward().
@@ -632,8 +680,7 @@ class NegativeCollector:
         global _WORKER_COLLECTOR
         _WORKER_COLLECTOR = self
 
-        logger.info("  Starting parallel collection: %d tasks on %d workers",
-                     len(tasks), n_workers)
+        logger.info("  Starting parallel collection: %d tasks on %d workers", len(tasks), n_workers)
 
         # Use fork context (workers inherit model via COW)
         ctx = mp.get_context("fork")
@@ -649,9 +696,14 @@ class NegativeCollector:
 
             n_empty = sum(1 for r in results if len(r) == 0)
             n_with = sum(1 for r in results if len(r) > 0)
-            logger.info("  Parallel collection complete: %d negatives from %d proteins "
-                         "(%d with failures, %d without/crashed)",
-                         len(all_negatives), len(tasks), n_with, n_empty)
+            logger.info(
+                "  Parallel collection complete: %d negatives from %d proteins "
+                "(%d with failures, %d without/crashed)",
+                len(all_negatives),
+                len(tasks),
+                n_with,
+                n_empty,
+            )
             if len(all_negatives) == 0 and len(tasks) > 0:
                 logger.warning(
                     "  All %d workers returned empty — check thresholds or model state",
@@ -662,8 +714,12 @@ class NegativeCollector:
             for task in tasks:
                 R_i, seq_i, beta, n_steps, pdb_id, chain_id = task
                 negs = self._collect_single(
-                    R_native=R_i, seq=seq_i, beta=beta, n_steps=n_steps,
-                    pdb_id=pdb_id, chain_id=chain_id,
+                    R_native=R_i,
+                    seq=seq_i,
+                    beta=beta,
+                    n_steps=n_steps,
+                    pdb_id=pdb_id,
+                    chain_id=chain_id,
                 )
                 all_negatives.extend(negs)
         finally:

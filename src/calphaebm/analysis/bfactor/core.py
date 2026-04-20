@@ -23,6 +23,7 @@ logger = get_logger()
 
 # ── B-factor extraction from mmCIF ────────────────────────────────────────
 
+
 def extract_ca_bfactors(
     pdb_id: str,
     cache_dir: str = "./pdb_cache",
@@ -84,8 +85,7 @@ def extract_ca_bfactors(
         residue_ids.append(residue.id[1])
 
     if len(bfactors) < 20:
-        logger.warning("Too few Cα atoms in %s chain %s: %d",
-                        pdb_id, chain.id, len(bfactors))
+        logger.warning("Too few Cα atoms in %s chain %s: %d", pdb_id, chain.id, len(bfactors))
         return None
 
     bfactors_arr = np.array(bfactors)
@@ -102,6 +102,7 @@ def extract_ca_bfactors(
 
 
 # ── Langevin dynamics ─────────────────────────────────────────────────────
+
 
 def run_langevin(
     model: TotalEnergy,
@@ -156,11 +157,12 @@ def run_langevin(
 
 # ── RMSF and B-factor computation ─────────────────────────────────────────
 
+
 def compute_rmsf(trajectory: torch.Tensor) -> np.ndarray:
     """Per-residue RMSF from trajectory. Returns (L,) in Å."""
     mean_coords = trajectory.mean(dim=0)
     displacements = trajectory - mean_coords.unsqueeze(0)
-    msd = (displacements ** 2).sum(dim=-1).mean(dim=0)
+    msd = (displacements**2).sum(dim=-1).mean(dim=0)
     return msd.sqrt().numpy()
 
 
@@ -170,6 +172,7 @@ def rmsf_to_bfactor(rmsf: np.ndarray) -> np.ndarray:
 
 
 # ── Correlation ───────────────────────────────────────────────────────────
+
 
 def pearson_corr(x: np.ndarray, y: np.ndarray) -> float:
     if len(x) < 3:
@@ -183,6 +186,7 @@ def pearson_corr(x: np.ndarray, y: np.ndarray) -> float:
 def spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
     try:
         from scipy.stats import spearmanr
+
         if len(x) < 3:
             return 0.0
         r, _ = spearmanr(x, y)
@@ -192,6 +196,7 @@ def spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
 
 
 # ── Per-structure analysis ────────────────────────────────────────────────
+
 
 def load_structure_for_model(
     pdb_id: str,
@@ -248,9 +253,9 @@ def analyze_one_structure(
     L = pdb_data["n_residues"]
     exp_bfactors = np.array(pdb_data["bfactors"])
 
-    logger.info("  %s: L=%d, B=[%.1f, %.1f], mean=%.1f",
-                pdb_id, L, exp_bfactors.min(), exp_bfactors.max(),
-                exp_bfactors.mean())
+    logger.info(
+        "  %s: L=%d, B=[%.1f, %.1f], mean=%.1f", pdb_id, L, exp_bfactors.min(), exp_bfactors.max(), exp_bfactors.mean()
+    )
 
     loaded = load_structure_for_model(pdb_id, cache_dir=cache_dir, device=device)
     if loaded is None:
@@ -273,9 +278,14 @@ def analyze_one_structure(
 
         try:
             traj = run_langevin(
-                model, R, seq, lengths,
-                beta=beta, n_steps=n_steps,
-                step_size=step_size, save_every=save_every,
+                model,
+                R,
+                seq,
+                lengths,
+                beta=beta,
+                n_steps=n_steps,
+                step_size=step_size,
+                save_every=save_every,
             )
 
             rmsf = compute_rmsf(traj)
@@ -284,7 +294,7 @@ def analyze_one_structure(
             # RMSD from native
             native = R[0, :L].detach().numpy()
             final = traj[-1].numpy()
-            rmsd = float(np.sqrt(((final - native)**2).sum(-1).mean()))
+            rmsd = float(np.sqrt(((final - native) ** 2).sum(-1).mean()))
 
             # Correlations
             r_pearson = pearson_corr(sim_B, exp_bfactors)
@@ -309,11 +319,16 @@ def analyze_one_structure(
                 "sim_bfactors": [round(float(b), 2) for b in sim_B],
             }
 
-            logger.info("      RMSD=%.2fÅ  r=%.3f  rho=%s  RMSF=%.3fÅ  "
-                        "B_sim=%.1f  B_exp=%.1f  scale=%.1f",
-                        rmsd, r_pearson,
-                        f"{r_spearman:.3f}" if np.isfinite(r_spearman) else "N/A",
-                        rmsf.mean(), mean_sim, mean_exp, scale)
+            logger.info(
+                "      RMSD=%.2fÅ  r=%.3f  rho=%s  RMSF=%.3fÅ  " "B_sim=%.1f  B_exp=%.1f  scale=%.1f",
+                rmsd,
+                r_pearson,
+                f"{r_spearman:.3f}" if np.isfinite(r_spearman) else "N/A",
+                rmsf.mean(),
+                mean_sim,
+                mean_exp,
+                scale,
+            )
 
         except Exception as e:
             logger.warning("    β=%.0f failed: %s", beta, e)
@@ -341,6 +356,7 @@ def analyze_one_structure(
 
 # ── Full analysis run ─────────────────────────────────────────────────────
 
+
 def run_bfactor_analysis(
     model: TotalEnergy,
     pdb_ids: List[str],
@@ -364,8 +380,7 @@ def run_bfactor_analysis(
         data = extract_ca_bfactors(pdb_id, cache_dir=cache_dir)
         if data is not None:
             pdb_data_list.append(data)
-            logger.info("  %s: %d residues, mean B=%.1f Å²",
-                        pdb_id, data["n_residues"], data["mean_bfactor"])
+            logger.info("  %s: %d residues, mean B=%.1f Å²", pdb_id, data["n_residues"], data["mean_bfactor"])
         else:
             logger.warning("  %s: skipped", pdb_id)
 
@@ -374,16 +389,20 @@ def run_bfactor_analysis(
         return {}
 
     # Run per-structure analysis
-    logger.info("Running Langevin B-factor analysis (β=%s, %d steps)...",
-                betas, n_steps)
+    logger.info("Running Langevin B-factor analysis (β=%s, %d steps)...", betas, n_steps)
 
     all_results = []
     for pdb_data in pdb_data_list:
         result = analyze_one_structure(
-            model, pdb_data["pdb_id"], pdb_data,
-            betas=betas, n_steps=n_steps,
-            step_size=step_size, save_every=save_every,
-            cache_dir=cache_dir, device=device,
+            model,
+            pdb_data["pdb_id"],
+            pdb_data,
+            betas=betas,
+            n_steps=n_steps,
+            step_size=step_size,
+            save_every=save_every,
+            cache_dir=cache_dir,
+            device=device,
         )
         all_results.append(result)
 
@@ -422,23 +441,19 @@ def run_bfactor_analysis(
     logger.info("  " + "-" * 42)
     for beta in sorted(beta_summary.keys()):
         bs = beta_summary[beta]
-        logger.info("  β=%-5.0f  r=%-8.4f  [%-6.4f, %-6.4f]",
-                    beta, bs["mean_r"], bs["min_r"], bs["max_r"])
+        logger.info("  β=%-5.0f  r=%-8.4f  [%-6.4f, %-6.4f]", beta, bs["mean_r"], bs["min_r"], bs["max_r"])
 
     if best_beta is not None:
         kT_300 = 0.592  # kcal/mol
         logger.info("")
         logger.info("  Best β = %.0f (mean Pearson r = %.4f)", best_beta, best_r)
-        logger.info("  → 1 model energy unit ≈ %.1f × kT(300K) ≈ %.2f kcal/mol",
-                    best_beta, best_beta * kT_300)
+        logger.info("  → 1 model energy unit ≈ %.1f × kT(300K) ≈ %.2f kcal/mol", best_beta, best_beta * kT_300)
 
     logger.info("")
     logger.info("  Per-structure best β:")
     for result in all_results:
         if "best_beta" in result and result["best_beta"] is not None:
-            logger.info("    %s: β*=%.0f (r=%.4f)",
-                        result["pdb_id"], result["best_beta"],
-                        result["best_pearson_r"])
+            logger.info("    %s: β*=%.0f (r=%.4f)", result["pdb_id"], result["best_beta"], result["best_pearson_r"])
     logger.info("=" * 70)
 
     # Save

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -15,7 +15,7 @@ from calphaebm.evaluation.metrics.clash import batch_min_distances, clash_probab
 from calphaebm.evaluation.metrics.contacts import contact_count, native_contact_set, q_hard, q_smooth
 from calphaebm.evaluation.metrics.rdf import batch_rdf
 from calphaebm.evaluation.metrics.rg import batch_rg, radius_of_gyration
-from calphaebm.evaluation.metrics.rmsd import batch_rmsd, batch_drmsd
+from calphaebm.evaluation.metrics.rmsd import batch_drmsd, batch_rmsd
 
 
 @dataclass
@@ -85,18 +85,24 @@ class EvaluationReport:
         lines.append(f"Frames: {self.n_frames}")
         lines.append(f"Atoms: {self.n_atoms}")
         lines.append(f"Reference: {self.reference_label}")
-        if 'save_every' in self.metadata:
+        if "save_every" in self.metadata:
             lines.append(f"Save every: {self.metadata['save_every']} steps")
         if self.burnin_frames > 0:
-            lines.append(f"Burn-in frames discarded: {self.burnin_frames} "
-                         f"({self.n_frames - self.burnin_frames} frames used for stats)")
+            lines.append(
+                f"Burn-in frames discarded: {self.burnin_frames} "
+                f"({self.n_frames - self.burnin_frames} frames used for stats)"
+            )
         lines.append("")
         lines.append(f"Rg_ref:    {self.rg_ref:.3f} A")
         lines.append(f"Rg_mean:   {self.rg_mean:.3f} +/- {self.rg_std:.3f} A")
         lines.append(f"Delta Rg:  {self.delta_rg_mean:.3f} +/- {self.delta_rg_std:.3f} A")
         lines.append("")
-        lines.append(f"RMSD_mean:  {self.rmsd_mean:.3f} +/- {self.rmsd_std:.3f} A  (coordinate RMSD — inflated by fixed 3.8 Å bonds)")
-        lines.append(f"dRMSD_mean: {self.drmsd_mean:.3f} +/- {self.drmsd_std:.3f} A  (pairwise distance RMSD — fold quality metric)")
+        lines.append(
+            f"RMSD_mean:  {self.rmsd_mean:.3f} +/- {self.rmsd_std:.3f} A  (coordinate RMSD — inflated by fixed 3.8 Å bonds)"
+        )
+        lines.append(
+            f"dRMSD_mean: {self.drmsd_mean:.3f} +/- {self.drmsd_std:.3f} A  (pairwise distance RMSD — fold quality metric)"
+        )
         lines.append("")
         if self.q_hard_mean is not None:
             lines.append(f"Q_hard:    {self.q_hard_mean:.3f} +/- {self.q_hard_std:.3f}")
@@ -114,9 +120,7 @@ class EvaluationReport:
 
         return "\n".join(lines)
 
-    def save(
-        self, out_dir: Path, prefix: str = "eval", generate_plots: bool = True, burnin_steps: int = 0
-    ) -> None:
+    def save(self, out_dir: Path, prefix: str = "eval", generate_plots: bool = True, burnin_steps: int = 0) -> None:
         """Save all results to directory.
 
         Args:
@@ -191,6 +195,7 @@ class EvaluationReport:
         if generate_plots:
             try:
                 from calphaebm.evaluation.plotting import plot_all
+
                 plot_all(self, out_dir, burnin_steps=burnin_steps)
             except ImportError as e:
                 print(f"Warning: Could not generate plots: {e}")
@@ -248,14 +253,15 @@ class TrajectoryEvaluator:
         # --- Resolve burn-in frames ---
         burnin_frames = 0
         if burnin_steps > 0:
-            if metadata and 'save_every' in metadata:
-                save_every = metadata['save_every']
+            if metadata and "save_every" in metadata:
+                save_every = metadata["save_every"]
                 burnin_frames = burnin_steps // save_every
             else:
                 # BUG FIX: if no metadata, treat burnin_steps directly as frame count
                 # with a warning so the caller knows the fallback was used
                 burnin_frames = burnin_steps
                 import warnings
+
                 warnings.warn(
                     f"burnin_steps={burnin_steps} specified but metadata has no "
                     f"'save_every' key — treating burnin_steps as frame count directly.",
@@ -270,60 +276,54 @@ class TrajectoryEvaluator:
             post_idx = slice(None)
 
         # --- Reference native contacts (from full reference, not trajectory) ---
-        native_i, native_j, native_d0 = native_contact_set(
-            reference, cutoff=self.contact_cutoff, exclude=self.exclude
-        )
+        native_i, native_j, native_d0 = native_contact_set(reference, cutoff=self.contact_cutoff, exclude=self.exclude)
         n_native = len(native_i)
 
         # --- Compute full time series ---
         rmsds = batch_rmsd(traj_array, reference)
-        drmsds = batch_drmsd(traj_array, reference, mode='nonlocal', exclude=self.exclude)
+        drmsds = batch_drmsd(traj_array, reference, mode="nonlocal", exclude=self.exclude)
         rgs = batch_rg(traj_array)
         delta_rgs = rgs - radius_of_gyration(reference)
 
-        contacts = np.array([
-            contact_count(frame, self.contact_cutoff, self.exclude)
-            for frame in traj_array
-        ])
+        contacts = np.array([contact_count(frame, self.contact_cutoff, self.exclude) for frame in traj_array])
 
         mins, medians = batch_min_distances(traj_array, self.exclude)
 
         q_hards = None
         q_smooths = None
         if n_native > 0:
-            q_hards = np.array([
-                q_hard(frame, native_i, native_j, self.contact_cutoff)
-                for frame in traj_array
-            ])
+            q_hards = np.array([q_hard(frame, native_i, native_j, self.contact_cutoff) for frame in traj_array])
             if compute_q_smooth:
-                q_smooths = np.array([
-                    q_smooth(
-                        frame, native_i, native_j, native_d0,
-                        self.q_smooth_beta, self.q_smooth_lambda,
-                    )
-                    for frame in traj_array
-                ])
+                q_smooths = np.array(
+                    [
+                        q_smooth(
+                            frame,
+                            native_i,
+                            native_j,
+                            native_d0,
+                            self.q_smooth_beta,
+                            self.q_smooth_lambda,
+                        )
+                        for frame in traj_array
+                    ]
+                )
 
         # RDF over full trajectory (averaged — burn-in inclusion is acceptable here
         # since RDF is a structural average and doesn't need equilibrium trimming)
-        rdf_centers, rdf_counts_arr, rdf_norm = batch_rdf(
-            traj_array, self.rdf_rmax, self.rdf_dr, self.exclude
-        )
+        rdf_centers, rdf_counts_arr, rdf_norm = batch_rdf(traj_array, self.rdf_rmax, self.rdf_dr, self.exclude)
 
         # Clash probabilities
-        p_all, p_post = clash_probability(
-            traj_array, self.clash_threshold, self.exclude, burnin_frames
-        )
+        p_all, p_post = clash_probability(traj_array, self.clash_threshold, self.exclude, burnin_frames)
 
         # --- BUG FIX: scalar stats use post-burnin slice ---
         rg_mean = float(rgs[post_idx].mean())
         rg_std = float(rgs[post_idx].std())
         delta_rg_mean = float(delta_rgs[post_idx].mean())
         delta_rg_std = float(delta_rgs[post_idx].std())
-        rmsd_mean  = float(rmsds[post_idx].mean())
-        rmsd_std   = float(rmsds[post_idx].std())
+        rmsd_mean = float(rmsds[post_idx].mean())
+        rmsd_std = float(rmsds[post_idx].std())
         drmsd_mean = float(drmsds[post_idx].mean())
-        drmsd_std  = float(drmsds[post_idx].std())
+        drmsd_std = float(drmsds[post_idx].std())
         contacts_mean = float(contacts[post_idx].mean())
         contacts_std = float(contacts[post_idx].std())
 
@@ -396,6 +396,7 @@ class TrajectoryEvaluator:
             reference = load_coords_from_xyz(ref_path)
         elif ref_path.endswith(".pdb"):
             import mdtraj as md
+
             traj = md.load_pdb(ref_path)
             reference = traj.xyz[0]
         else:
@@ -411,7 +412,8 @@ class TrajectoryEvaluator:
         metadata_path = os.path.join(traj_dir, "metadata.json")
         if os.path.exists(metadata_path):
             import json
-            with open(metadata_path, 'r') as f:
+
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
         return self.evaluate(

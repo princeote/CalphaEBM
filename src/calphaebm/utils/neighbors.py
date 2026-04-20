@@ -91,9 +91,7 @@ class NeighborList:
                 needs_update = True
 
         if needs_update or self.pairs is None:
-            self.pairs = topk_nonbonded_pairs(
-                R, K=self.max_neighbors, exclude=exclude, max_dist=self.cutoff
-            )
+            self.pairs = topk_nonbonded_pairs(R, K=self.max_neighbors, exclude=exclude, max_dist=self.cutoff)
             self.last_positions = R.clone()
 
         return self.pairs

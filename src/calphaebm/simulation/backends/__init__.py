@@ -14,6 +14,7 @@ from calphaebm.simulation.backends.langevin_mala import MALASimulator
 # Cartesian integrator (kept for DSM training and legacy comparison)
 try:
     from calphaebm.simulation.backends.pytorch import PyTorchSimulator
+
     _pytorch_available = True
 except ImportError:
     _pytorch_available = False
@@ -47,15 +48,27 @@ def get_simulator(
     name = name.lower().strip()
     if name == "langevin":
         return ICLangevinSimulator(
-            model=model, seq=seq, R_init=R_init,
-            step_size=step_size, beta=beta, force_cap=force_cap,
-            bond=bond, lengths=lengths, device=device,
+            model=model,
+            seq=seq,
+            R_init=R_init,
+            step_size=step_size,
+            beta=beta,
+            force_cap=force_cap,
+            bond=bond,
+            lengths=lengths,
+            device=device,
         )
     elif name == "mala":
         return MALASimulator(
-            model=model, seq=seq, R_init=R_init,
-            step_size=step_size, beta=beta, force_cap=force_cap,
-            bond=bond, lengths=lengths, device=device,
+            model=model,
+            seq=seq,
+            R_init=R_init,
+            step_size=step_size,
+            beta=beta,
+            force_cap=force_cap,
+            bond=bond,
+            lengths=lengths,
+            device=device,
         )
     else:
         raise ValueError(f"Unknown sampler: {name!r}. Use 'langevin' or 'mala'.")
@@ -88,8 +101,12 @@ def langevin_sample(
 
     sim = get_simulator(
         name=sampler,
-        model=model, seq=seq, R_init=R0,
-        step_size=step_size, beta=beta, force_cap=force_cap,
+        model=model,
+        seq=seq,
+        R_init=R0,
+        step_size=step_size,
+        beta=beta,
+        force_cap=force_cap,
     )
 
     snapshots: List[torch.Tensor] = []

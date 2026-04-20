@@ -63,14 +63,10 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.simulation.fixman import fixman_potential
-from calphaebm.utils.math import wrap_to_pi
 from calphaebm.utils.logging import get_logger
+from calphaebm.utils.math import wrap_to_pi
 
 logger = get_logger()
 
@@ -78,16 +74,17 @@ logger = get_logger()
 @dataclass
 class ICStepInfo:
     """Diagnostic info returned at each simulation step."""
+
     step: int
     energy: float
     theta_grad_norm: float
     phi_grad_norm: float
     theta_std: float
     phi_std: float
-    bond_length_mean: float   # should be ~3.8 always
-    bond_length_std: float    # should be ~0.000 always
-    bond_length_min: float    # should be ~3.8 always
-    bond_length_max: float    # should be ~3.8 always
+    bond_length_mean: float  # should be ~3.8 always
+    bond_length_std: float  # should be ~0.000 always
+    bond_length_min: float  # should be ~3.8 always
+    bond_length_max: float  # should be ~3.8 always
 
 
 class ICLangevinSimulator:
@@ -121,12 +118,12 @@ class ICLangevinSimulator:
         lengths: Optional[torch.Tensor] = None,
         device: Optional[torch.device] = None,
     ):
-        self.model     = model
+        self.model = model
         self.step_size = float(step_size)
-        self.beta      = float(beta)
+        self.beta = float(beta)
         self.force_cap = float(force_cap)
-        self.bond      = float(bond)
-        self.step_num  = 0
+        self.bond = float(bond)
+        self.step_num = 0
 
         if device is None:
             device = next(model.parameters()).device
@@ -150,22 +147,20 @@ class ICLangevinSimulator:
             self.lengths = None
 
         # Fixed anchor — first 3 atoms never move
-        self.anchor = extract_anchor(R_init)   # (1, 3, 3)
+        self.anchor = extract_anchor(R_init)  # (1, 3, 3)
 
         # Initial internal coordinates
-        theta_init, phi_init = coords_to_internal(R_init)   # (1, L-2), (1, L-3)
+        theta_init, phi_init = coords_to_internal(R_init)  # (1, L-2), (1, L-3)
 
         # State: θ and φ are the only degrees of freedom
         # Requires grad so autograd can compute dE/dθ and dE/dφ
         self.theta = theta_init.clone().detach().requires_grad_(True)
-        self.phi   = phi_init.clone().detach().requires_grad_(True)
+        self.phi = phi_init.clone().detach().requires_grad_(True)
 
         L = R_init.shape[1]
         logger.debug("ICLangevinSimulator initialized:")
-        logger.debug("  L=%d  theta shape=%s  phi shape=%s",
-                    L, tuple(self.theta.shape), tuple(self.phi.shape))
-        logger.debug("  step_size=%.2e  beta=%.1f  force_cap=%.1f  bond=%.2fÅ",
-                    step_size, beta, force_cap, bond)
+        logger.debug("  L=%d  theta shape=%s  phi shape=%s", L, tuple(self.theta.shape), tuple(self.phi.shape))
+        logger.debug("  step_size=%.2e  beta=%.1f  force_cap=%.1f  bond=%.2fÅ", step_size, beta, force_cap, bond)
         logger.debug("  Anchor fixed: first 3 atoms set from R_init")
         logger.debug("  Bond lengths: EXACTLY %.2fÅ by NeRF construction (not a penalty)", bond)
 
@@ -193,10 +188,10 @@ class ICLangevinSimulator:
             grad_phi:   (1, L-3) gradient of U_eff w.r.t. φ (Fixman is θ-only)
         """
         theta = self.theta.requires_grad_(True)
-        phi   = self.phi.requires_grad_(True)
+        phi = self.phi.requires_grad_(True)
 
         R = nerf_reconstruct(theta, phi, self.anchor, bond=self.bond)
-        E = self.model(R, self.seq, lengths=self.lengths)   # (1,)
+        E = self.model(R, self.seq, lengths=self.lengths)  # (1,)
 
         # Fixman correction: U_Fixman(θ) = -(1/β)·Σ log sin(θᵢ)
         # Added before backward so autograd includes ∇_θ U_Fixman = -(1/β)·cot(θᵢ)
@@ -211,7 +206,7 @@ class ICLangevinSimulator:
         )
 
         grad_theta = torch.nan_to_num(grads[0].detach(), nan=0.0, posinf=0.0, neginf=0.0)
-        grad_phi   = torch.nan_to_num(grads[1].detach(), nan=0.0, posinf=0.0, neginf=0.0)
+        grad_phi = torch.nan_to_num(grads[1].detach(), nan=0.0, posinf=0.0, neginf=0.0)
 
         return E.detach(), grad_theta, grad_phi
 
@@ -222,7 +217,7 @@ class ICLangevinSimulator:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Cap force magnitude per DOF to prevent runaway steps."""
         grad_theta = grad_theta.clamp(-self.force_cap, self.force_cap)
-        grad_phi   = grad_phi.clamp(-self.force_cap, self.force_cap)
+        grad_phi = grad_phi.clamp(-self.force_cap, self.force_cap)
         return grad_theta, grad_phi
 
     def step(self) -> Tuple[torch.Tensor, torch.Tensor, ICStepInfo]:
@@ -233,7 +228,7 @@ class ICLangevinSimulator:
             E:    (1,) energy at current step
             info: ICStepInfo diagnostic struct
         """
-        dt   = self.step_size
+        dt = self.step_size
         beta = self.beta
         noise_scale = (2.0 * dt / beta) ** 0.5
 
@@ -246,10 +241,10 @@ class ICLangevinSimulator:
         # 3) Langevin update (no_grad — we're updating the values, not building a graph)
         with torch.no_grad():
             noise_theta = torch.randn_like(self.theta) * noise_scale
-            noise_phi   = torch.randn_like(self.phi)   * noise_scale
+            noise_phi = torch.randn_like(self.phi) * noise_scale
 
             new_theta = self.theta - dt * grad_theta + noise_theta
-            new_phi   = self.phi   - dt * grad_phi   + noise_phi
+            new_phi = self.phi - dt * grad_phi + noise_phi
 
             # θ must stay in (0, π) — bond angles are physically bounded
             new_theta = new_theta.clamp(0.01, torch.pi - 0.01)
@@ -259,19 +254,19 @@ class ICLangevinSimulator:
 
             # Update state
             self.theta = new_theta.requires_grad_(True)
-            self.phi   = new_phi.requires_grad_(True)
+            self.phi = new_phi.requires_grad_(True)
 
         # 4) Reconstruct R for return / logging
         with torch.no_grad():
             R = self._get_R()
 
             # Verify bond lengths (cheap diagnostic)
-            diffs       = R[:, 1:, :] - R[:, :-1, :]
+            diffs = R[:, 1:, :] - R[:, :-1, :]
             bond_lengths = torch.sqrt((diffs * diffs).sum(dim=-1))  # (1, L-1)
             bl_mean = bond_lengths.mean().item()
-            bl_std  = bond_lengths.std().item()
-            bl_min  = bond_lengths.min().item()
-            bl_max  = bond_lengths.max().item()
+            bl_std = bond_lengths.std().item()
+            bl_min = bond_lengths.min().item()
+            bl_max = bond_lengths.max().item()
 
         self.step_num += 1
 
@@ -307,7 +302,7 @@ class ICLangevinSimulator:
             frames:   List of (1, L, 3) coordinate tensors
             energies: List of scalar energy values
         """
-        frames   = []
+        frames = []
         energies = []
 
         for i in range(n_steps):
@@ -319,20 +314,22 @@ class ICLangevinSimulator:
 
             if (i + 1) % log_every == 0:
                 logger.info(
-                    "step %6d/%d | E=%+.3f | "
-                    "bond=%.4f±%.4fÅ [%.4f,%.4f] | "
-                    "|∇θ|=%.3f |∇φ|=%.3f",
-                    i + 1, n_steps, info.energy,
-                    info.bond_length_mean, info.bond_length_std,
-                    info.bond_length_min, info.bond_length_max,
-                    info.theta_grad_norm, info.phi_grad_norm,
+                    "step %6d/%d | E=%+.3f | " "bond=%.4f±%.4fÅ [%.4f,%.4f] | " "|∇θ|=%.3f |∇φ|=%.3f",
+                    i + 1,
+                    n_steps,
+                    info.energy,
+                    info.bond_length_mean,
+                    info.bond_length_std,
+                    info.bond_length_min,
+                    info.bond_length_max,
+                    info.theta_grad_norm,
+                    info.phi_grad_norm,
                 )
 
                 # Bond length should be ~3.800 ± 0.000 at every step
                 if abs(info.bond_length_mean - self.bond) > 0.01:
                     logger.warning(
-                        "Unexpected bond length drift: mean=%.4fÅ (expected %.3fÅ)",
-                        info.bond_length_mean, self.bond
+                        "Unexpected bond length drift: mean=%.4fÅ (expected %.3fÅ)", info.bond_length_mean, self.bond
                     )
 
         return frames, energies
@@ -354,7 +351,7 @@ class ICLangevinSimulator:
         R_init = R_init.float().to(self.device)
         self.anchor = extract_anchor(R_init)
         theta_init, phi_init = coords_to_internal(R_init)
-        self.theta    = theta_init.clone().detach().requires_grad_(True)
-        self.phi      = phi_init.clone().detach().requires_grad_(True)
+        self.theta = theta_init.clone().detach().requires_grad_(True)
+        self.phi = phi_init.clone().detach().requires_grad_(True)
         self.step_num = 0
         logger.info("ICLangevinSimulator reset to new starting structure.")

@@ -11,24 +11,25 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from calphaebm.data.pdb_dataset import PDBSegmentDataset
 from calphaebm.data.pdb_chain_dataset import PDBChainDataset
-from calphaebm.training.phased import PhasedTrainer
+from calphaebm.data.pdb_dataset import PDBSegmentDataset
+from calphaebm.defaults import MODEL as _M
+from calphaebm.defaults import TRAIN as _T
 from calphaebm.training.core.config import PhaseConfig
+from calphaebm.training.phased import PhasedTrainer
 from calphaebm.utils.logging import get_logger
 from calphaebm.utils.seed import seed_all
-from calphaebm.defaults import MODEL as _M, TRAIN as _T
 
+from .checkpoint import load_checkpoint, load_weights_into_model
 from .data_utils import parse_pdb_arg, save_split_ids
+from .model_builder import build_model, verify_model_terms
 from .phase_utils import (
     determine_terms_for_phase,
     get_active_terms_for_phase,
     get_loss_fn_for_phase,
-    get_validate_every_for_phase,
     get_ramp_config,
+    get_validate_every_for_phase,
 )
-from .checkpoint import load_checkpoint, load_weights_into_model
-from .model_builder import build_model, verify_model_terms
 
 logger = get_logger()
 
@@ -62,13 +63,11 @@ def _try_load_saved_split(split_dir: Path) -> tuple[list[str], list[str]] | None
         va_path = split_dir / va_name
         if tr_path.exists() and va_path.exists():
             train_ids = _read_ids_file(tr_path)
-            val_ids   = _read_ids_file(va_path)
+            val_ids = _read_ids_file(va_path)
             if train_ids and val_ids:
-                logger.info("Loaded existing train/val split from %s (%s, %s)",
-                            str(split_dir), tr_name, va_name)
+                logger.info("Loaded existing train/val split from %s (%s, %s)", str(split_dir), tr_name, va_name)
                 return train_ids, val_ids
-            logger.warning("Found split files but they were empty: %s and %s",
-                           str(tr_path), str(va_path))
+            logger.warning("Found split files but they were empty: %s and %s", str(tr_path), str(va_path))
     return None
 
 
@@ -106,8 +105,13 @@ def run(args):
         if not val_ids:
             logger.error("No valid validation PDB IDs found in %s", args.val_pdb)
             return 1
-        logger.info("Explicit split: %d train from %s, %d val from %s",
-                     len(train_ids), args.train_pdb, len(val_ids), args.val_pdb)
+        logger.info(
+            "Explicit split: %d train from %s, %d val from %s",
+            len(train_ids),
+            args.train_pdb,
+            len(val_ids),
+            args.val_pdb,
+        )
         save_split_ids(train_ids, val_ids, args.ckpt_dir, args.ckpt_prefix)
     else:
         # Legacy: --pdb with 80/20 split
@@ -122,9 +126,9 @@ def run(args):
         else:
             rng = random.Random(42)
             rng.shuffle(pdb_ids)
-            split     = int(0.8 * len(pdb_ids))
+            split = int(0.8 * len(pdb_ids))
             train_ids = pdb_ids[:split]
-            val_ids   = pdb_ids[split:]
+            val_ids = pdb_ids[split:]
             save_split_ids(train_ids, val_ids, args.ckpt_dir, args.ckpt_prefix)
             logger.info("Saved train/val splits to %s", str(split_dir))
     logger.info("Training on %d IDs, validating on %d IDs", len(train_ids), len(val_ids))
@@ -166,15 +170,15 @@ def run(args):
                 collate_fn=PDBChainDataset.collate,
             )
             logger.info(
-                "FULL-CHAIN MODE: %d chains (L=40-%d), %d batches of %d — "
-                "no segmentation, no boundary artifacts",
-                len(train_chain_dataset), elt_max_len,
-                len(train_loader), elt_batch_size,
+                "FULL-CHAIN MODE: %d chains (L=40-%d), %d batches of %d — " "no segmentation, no boundary artifacts",
+                len(train_chain_dataset),
+                elt_max_len,
+                len(train_loader),
+                elt_batch_size,
             )
         else:
             logger.error(
-                "PDBChainDataset is empty (no chains with L=40-%d). "
-                "FALLING BACK TO SEGMENTS.",
+                "PDBChainDataset is empty (no chains with L=40-%d). " "FALLING BACK TO SEGMENTS.",
                 elt_max_len,
             )
             use_full_chains = False
@@ -188,7 +192,8 @@ def run(args):
             "Using SEGMENT batches (seg_len=%d, batch=%d). "
             "Boundary residues (~15-20%%) will have corrupted packing context. "
             "Fix PDBChainDataset or increase --elt-max-len to avoid this.",
-            args.seg_len, args.batch_size,
+            args.seg_len,
+            args.batch_size,
         )
         train_seg_dataset = PDBSegmentDataset(
             pdb_ids=train_ids,
@@ -201,8 +206,9 @@ def run(args):
             processed_cache_dir=args.processed_cache_dir,
             force_reprocess=args.force_reprocess,
         )
-        train_loader = DataLoader(train_seg_dataset, batch_size=args.batch_size,
-                                  shuffle=True, num_workers=4, drop_last=True)
+        train_loader = DataLoader(
+            train_seg_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, drop_last=True
+        )
         logger.info("Train dataset: %d segments (seg_len=%d)", len(train_seg_dataset), args.seg_len)
 
     # ── Val loader (also full chains) ─────────────────────────────────────
@@ -229,7 +235,9 @@ def run(args):
             )
             logger.info(
                 "Val dataset: %d full chains (L=40-%d), %d batches",
-                len(val_chain_dataset), elt_max_len, len(val_loader),
+                len(val_chain_dataset),
+                elt_max_len,
+                len(val_loader),
             )
         else:
             logger.warning("Val PDBChainDataset is empty — falling back to segments for validation")
@@ -248,8 +256,9 @@ def run(args):
             processed_cache_dir=args.processed_cache_dir,
             force_reprocess=args.force_reprocess,
         )
-        val_loader = DataLoader(val_seg_dataset, batch_size=args.batch_size,
-                                shuffle=False, num_workers=4, drop_last=False)
+        val_loader = DataLoader(
+            val_seg_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, drop_last=False
+        )
         logger.info("Val dataset: %d segments (fallback)", len(val_seg_dataset))
 
     # ── Determine terms for model building ───────────────────────────────────
@@ -267,6 +276,7 @@ def run(args):
         if resume_path == "auto":
             phase_dir = Path(args.ckpt_dir) / args.ckpt_prefix / args.phase
             from .checkpoint import find_latest_checkpoint as _find_latest_checkpoint
+
             resume_path = _find_latest_checkpoint(phase_dir)
             if resume_path is None:
                 logger.error("No checkpoint found for auto-resume in %s", str(phase_dir))
@@ -288,9 +298,9 @@ def run(args):
     if checkpoint_state is not None and hasattr(model, "packing") and model.packing is not None:
         _packing = model.packing
         _buf_overrides = {
-            "rg_lambda":    getattr(args, "packing_rg_lambda", None),
-            "rg_r0":        getattr(args, "packing_rg_r0", None),
-            "rg_nu":        getattr(args, "packing_rg_nu", None),
+            "rg_lambda": getattr(args, "packing_rg_lambda", None),
+            "rg_r0": getattr(args, "packing_rg_r0", None),
+            "rg_nu": getattr(args, "packing_rg_nu", None),
             "coord_lambda": getattr(args, "hp_penalty_lambda", getattr(args, "coord_lambda", None)),
         }
         for _buf_name, _cli_val in _buf_overrides.items():
@@ -298,24 +308,27 @@ def run(args):
                 _attr = getattr(_packing, _buf_name)
                 # Skip override if this is a learnable Parameter — preserve trained value
                 if isinstance(_attr, torch.nn.Parameter) and _attr.requires_grad:
-                    logger.info("Buffer override SKIPPED: packing.%s = %.4f (learnable, preserving trained value)",
-                                _buf_name, _attr.item())
+                    logger.info(
+                        "Buffer override SKIPPED: packing.%s = %.4f (learnable, preserving trained value)",
+                        _buf_name,
+                        _attr.item(),
+                    )
                     continue
                 _old_val = _attr.item()
                 _attr.data.fill_(float(_cli_val))
                 _new_val = _attr.item()
                 if abs(_old_val - _new_val) > 1e-6:
-                    logger.info("Buffer override: packing.%s  %.4f → %.4f (CLI)",
-                                _buf_name, _old_val, _new_val)
+                    logger.info("Buffer override: packing.%s  %.4f → %.4f (CLI)", _buf_name, _old_val, _new_val)
 
     # ── CLI init overrides (applied AFTER checkpoint load) ────────────────────
     # bond_spring is GONE — only angle weights remain.
     import math as _math
+
     import torch.nn.functional as _F
 
     _INIT_DEFAULTS = {
         "init_theta_theta_weight": 1.0,
-        "init_delta_phi_weight":   1.0,
+        "init_delta_phi_weight": 1.0,
     }
 
     def _set_softplus_raw(param, val):
@@ -339,11 +352,12 @@ def run(args):
 
     # ── Gate overrides (applied AFTER checkpoint load) ────────────────────────
     import torch as _torch
+
     _gate_overrides = {
-        "gate_local":      getattr(args, "set_gate_local",      None),
-        "gate_secondary":  getattr(args, "set_gate_secondary",  None),
-        "gate_repulsion":  getattr(args, "set_gate_repulsion",  None),
-        "gate_packing":    getattr(args, "set_gate_packing",    None),
+        "gate_local": getattr(args, "set_gate_local", None),
+        "gate_secondary": getattr(args, "set_gate_secondary", None),
+        "gate_repulsion": getattr(args, "set_gate_repulsion", None),
+        "gate_packing": getattr(args, "set_gate_packing", None),
     }
     for _gate_name, _gate_val in _gate_overrides.items():
         if _gate_val is not None:
@@ -351,8 +365,7 @@ def run(args):
                 getattr(model, _gate_name).fill_(_gate_val)
                 logger.info("Gate override: %s → %.4f", _gate_name, _gate_val)
             else:
-                logger.warning("--set-%s requested but model has no %s",
-                               _gate_name.replace("_", "-"), _gate_name)
+                logger.warning("--set-%s requested but model has no %s", _gate_name.replace("_", "-"), _gate_name)
 
     # ── Log actual values post-load ───────────────────────────────────────────
     if getattr(model, "local", None) is not None:
@@ -368,8 +381,7 @@ def run(args):
             tw = local.theta_theta_weight.item() if hasattr(local, "theta_theta_weight") else 0.0
             dw = local.delta_phi_weight.item() if hasattr(local, "delta_phi_weight") else 0.0
             logger.info("Local lambdas (pre-gate):  theta_theta=%.3f  delta_phi=%.3f", tw, dw)
-            logger.info("Local lambdas (×gate=%.4f): theta_theta=%.3f  delta_phi=%.3f",
-                        g, tw * g, dw * g)
+            logger.info("Local lambdas (×gate=%.4f): theta_theta=%.3f  delta_phi=%.3f", g, tw * g, dw * g)
     for _gate_name in ["gate_local", "gate_secondary", "gate_repulsion", "gate_packing"]:
         if hasattr(model, _gate_name):
             logger.info("Gate %s = %.4f", _gate_name, getattr(model, _gate_name).item())
@@ -384,6 +396,7 @@ def run(args):
         # Build a config namespace from args
         class _StageConfig:
             pass
+
         _cfg = _StageConfig()
         # Round structure
         _cfg.max_rounds = int(getattr(args, "max_rounds", _T["max_rounds"]))
@@ -411,8 +424,7 @@ def run(args):
         # dRMSD-funnel — honour deprecated --lambda-rg if explicitly set
         _lambda_rg_alias = getattr(args, "lambda_rg", None)
         _cfg.lambda_drmsd = float(
-            _lambda_rg_alias if _lambda_rg_alias is not None
-            else getattr(args, "lambda_drmsd", _T["lambda_drmsd"])
+            _lambda_rg_alias if _lambda_rg_alias is not None else getattr(args, "lambda_drmsd", _T["lambda_drmsd"])
         )
         _cfg.lambda_gap = float(getattr(args, "lambda_gap", _T["lambda_gap"]))
         _cfg.gap_margin = float(getattr(args, "gap_margin", _T["gap_margin"]))
@@ -448,23 +460,24 @@ def run(args):
 
         # Create trainer wrapper
         from calphaebm.training.phased import PhasedTrainer
-        trainer = PhasedTrainer(model=model, device=device,
-                                ckpt_dir=args.ckpt_dir, experiment_prefix=args.ckpt_prefix)
+
+        trainer = PhasedTrainer(model=model, device=device, ckpt_dir=args.ckpt_dir, experiment_prefix=args.ckpt_prefix)
 
         # Restore trainer state from checkpoint (global_step, phase_step, etc.)
         # --resume: full restore (training continues where it left off)
         # --resume-model-only: skip (fresh start with trained weights)
         _is_model_only = getattr(args, "resume_model_only", False)
         if trainer_state and not _is_model_only:
-            trainer.global_step                     = trainer_state.get("global_step", 0)
-            trainer.phase_step                      = trainer_state.get("phase_step", 0)
-            trainer.best_composite_score            = trainer_state.get("best_composite_score")
-            trainer.best_composite_score_initialized= trainer_state.get("best_composite_score_initialized", False)
-            trainer.best_val_step                   = trainer_state.get("best_val_step", 0)
-            trainer.early_stopping_counter          = trainer_state.get("early_stopping_counter", 0)
-            trainer.validation_history              = trainer_state.get("validation_history", [])
-            logger.info("Full resume: restored trainer state (global=%d, phase=%d)",
-                        trainer.global_step, trainer.phase_step)
+            trainer.global_step = trainer_state.get("global_step", 0)
+            trainer.phase_step = trainer_state.get("phase_step", 0)
+            trainer.best_composite_score = trainer_state.get("best_composite_score")
+            trainer.best_composite_score_initialized = trainer_state.get("best_composite_score_initialized", False)
+            trainer.best_val_step = trainer_state.get("best_val_step", 0)
+            trainer.early_stopping_counter = trainer_state.get("early_stopping_counter", 0)
+            trainer.validation_history = trainer_state.get("validation_history", [])
+            logger.info(
+                "Full resume: restored trainer state (global=%d, phase=%d)", trainer.global_step, trainer.phase_step
+            )
         elif _is_model_only and checkpoint_state is not None:
             logger.info("Model-only resume: training state reset (global_step=0, fresh start)")
 
@@ -480,8 +493,8 @@ def run(args):
     # Dispatches early — all the PhaseConfig/gate/active_terms logic below is
     # only needed for standard training phases, not for the SC meta-loop.
     if args.phase == "self-consistent":
-        from calphaebm.training.self_consistent import SelfConsistentTrainer
         from calphaebm.training.sc_defaults import SC_DEFAULTS as _D
+        from calphaebm.training.self_consistent import SelfConsistentTrainer
 
         sc_out_dir = str(Path(args.ckpt_dir) / args.ckpt_prefix / "self-consistent")
         sc_trainer = SelfConsistentTrainer(
@@ -512,7 +525,9 @@ def run(args):
             # Model-sampled negative losses (3× Synthetic counterparts)
             lambda_sampled_hsm=float(getattr(args, "lambda_sampled_hsm", _D["lambda_sampled_hsm"])),
             lambda_sampled_qf=float(getattr(args, "lambda_sampled_qf", _D["lambda_sampled_qf"])),
-            lambda_sampled_drmsd_funnel=float(getattr(args, "lambda_sampled_drmsd_funnel", _D["lambda_sampled_drmsd_funnel"])),
+            lambda_sampled_drmsd_funnel=float(
+                getattr(args, "lambda_sampled_drmsd_funnel", _D["lambda_sampled_drmsd_funnel"])
+            ),
             lambda_sampled_gap=float(getattr(args, "lambda_sampled_gap", _D["lambda_sampled_gap"])),
             sc_margin=float(getattr(args, "sc_margin", _D["sc_margin"])),
             # Run5: saturating exponential margins
@@ -571,17 +586,20 @@ def run(args):
         active_terms = get_active_terms_for_phase(_phase_for_terms)
 
     if "secondary" in active_terms and not model_has_secondary:
-        logger.error("Active terms include 'secondary' but model.secondary is None"); return 1
+        logger.error("Active terms include 'secondary' but model.secondary is None")
+        return 1
     if "repulsion" in active_terms and getattr(model, "repulsion", None) is None:
-        logger.error("Active terms include 'repulsion' but model.repulsion is None"); return 1
-    if "packing"   in active_terms and getattr(model, "packing",   None) is None:
-        logger.error("Active terms include 'packing' but model.packing is None");    return 1
+        logger.error("Active terms include 'repulsion' but model.repulsion is None")
+        return 1
+    if "packing" in active_terms and getattr(model, "packing", None) is None:
+        logger.error("Active terms include 'packing' but model.packing is None")
+        return 1
 
     logger.info("Active terms for phase %s: %s", args.phase, active_terms)
 
     # ── PhaseConfig construction ──────────────────────────────────────────────
-    loss_fn       = get_loss_fn_for_phase(args.phase)
-    validate_every= get_validate_every_for_phase(args.phase, args.validate_every)
+    loss_fn = get_loss_fn_for_phase(args.phase)
+    validate_every = get_validate_every_for_phase(args.phase, args.validate_every)
     ramp_start, ramp_end = get_ramp_config(args)
 
     lr_final = args.lr_final
@@ -590,18 +608,18 @@ def run(args):
 
     gate_schedule = {
         "secondary": [0.0, 1.0] if args.phase == "secondary" else None,
-        "packing":   None,
+        "packing": None,
         "repulsion": None,
-        "local":     None,
+        "local": None,
     }
 
     config_kwargs: dict = {}
 
     if args.phase == "packing":
-        config_kwargs["ramp_pack_start"]   = float(args.ramp_pack_start)
-        config_kwargs["ramp_pack_end"]     = float(args.ramp_pack_end)
-        config_kwargs["ramp_steps"]        = int(args.ramp_steps)
-        config_kwargs["packing_pretrain"]  = bool(getattr(args, "packing_pretrain", False))
+        config_kwargs["ramp_pack_start"] = float(args.ramp_pack_start)
+        config_kwargs["ramp_pack_end"] = float(args.ramp_pack_end)
+        config_kwargs["ramp_steps"] = int(args.ramp_steps)
+        config_kwargs["packing_pretrain"] = bool(getattr(args, "packing_pretrain", False))
         logoe_dir = getattr(args, "packing_logoe_data_dir", None)
         if logoe_dir:
             config_kwargs["packing_logoe_data_dir"] = logoe_dir
@@ -612,31 +630,30 @@ def run(args):
         config_kwargs["ramp_gates"] = ramp_gates
         config_kwargs["ramp_steps"] = int(args.ramp_steps)
         config_kwargs["ramp_start"] = ramp_start
-        config_kwargs["ramp_end"]   = ramp_end
+        config_kwargs["ramp_end"] = ramp_end
 
     config_kwargs["freeze_gates_steps"] = int(getattr(args, "freeze_gates_steps", 0) or 0)
     config_kwargs["freeze_packing_scalar"] = bool(getattr(args, "freeze_packing_scalar", False))
-    config_kwargs["scalar_lr_mult"]        = float(getattr(args, "scalar_lr_mult", 20.0) or 20.0)
+    config_kwargs["scalar_lr_mult"] = float(getattr(args, "scalar_lr_mult", 20.0) or 20.0)
     config_kwargs["lambda_pack_contrastive"] = float(getattr(args, "lambda_pack_contrastive", 0.0) or 0.0)
     config_kwargs["pack_contrastive_margin"] = float(getattr(args, "pack_contrastive_margin", 0.5) or 0.5)
-    config_kwargs["pack_contrastive_mode"]   = str(getattr(args, "pack_contrastive_mode", "continuous") or "continuous")
+    config_kwargs["pack_contrastive_mode"] = str(getattr(args, "pack_contrastive_mode", "continuous") or "continuous")
     config_kwargs["pack_contrastive_T_base"] = float(getattr(args, "pack_contrastive_T_base", 2.0) or 2.0)
-    config_kwargs["lambda_balance"]          = float(getattr(args, "lambda_balance",          0.0) or 0.0)
-    config_kwargs["balance_r"]               = float(getattr(args, "balance_r",               3.0) or 3.0)
-    config_kwargs["balance_r_term"]          = float(getattr(args, "balance_r_term",          4.0) or 4.0)
-    config_kwargs["lambda_discrim"]          = float(getattr(args, "lambda_discrim",          0.0) or 0.0)
-    config_kwargs["discrim_every"]           = int(getattr(args,   "discrim_every",           4)   or 4)
-    config_kwargs["discrim_sigma_min"]       = float(getattr(args, "discrim_sigma_min",       0.05) or 0.05)
-    config_kwargs["discrim_sigma_max"]       = float(getattr(args, "discrim_sigma_max",       2.0) or 2.0)
-    config_kwargs["discrim_mode"]            = str(getattr(args,   "discrim_mode",            "mean") or "mean")
+    config_kwargs["lambda_balance"] = float(getattr(args, "lambda_balance", 0.0) or 0.0)
+    config_kwargs["balance_r"] = float(getattr(args, "balance_r", 3.0) or 3.0)
+    config_kwargs["balance_r_term"] = float(getattr(args, "balance_r_term", 4.0) or 4.0)
+    config_kwargs["lambda_discrim"] = float(getattr(args, "lambda_discrim", 0.0) or 0.0)
+    config_kwargs["discrim_every"] = int(getattr(args, "discrim_every", 4) or 4)
+    config_kwargs["discrim_sigma_min"] = float(getattr(args, "discrim_sigma_min", 0.05) or 0.05)
+    config_kwargs["discrim_sigma_max"] = float(getattr(args, "discrim_sigma_max", 2.0) or 2.0)
+    config_kwargs["discrim_mode"] = str(getattr(args, "discrim_mode", "mean") or "mean")
     # dRMSD-funnel — honour deprecated --lambda-rg if set in legacy scripts
     _lr_alias = getattr(args, "lambda_rg", None)
-    config_kwargs["lambda_drmsd"]             = float(
-        _lr_alias if _lr_alias is not None
-        else getattr(args, "lambda_drmsd", 0.0) or 0.0
+    config_kwargs["lambda_drmsd"] = float(
+        _lr_alias if _lr_alias is not None else getattr(args, "lambda_drmsd", 0.0) or 0.0
     )
-    config_kwargs["rg_alpha_min"]            = float(getattr(args, "rg_alpha_min",            0.75))
-    config_kwargs["rg_alpha_max"]            = float(getattr(args, "rg_alpha_max",            1.25))
+    config_kwargs["rg_alpha_min"] = float(getattr(args, "rg_alpha_min", 0.75))
+    config_kwargs["rg_alpha_max"] = float(getattr(args, "rg_alpha_max", 1.25))
 
     # ── IC DSM sigma forwarding (RADIANS, not Å) ──────────────────────────────
     if hasattr(args, "sigma_rad") and args.sigma_rad is not None:
@@ -656,57 +673,57 @@ def run(args):
 
     if args.phase == "full":
         # ── IC Force balance loss ─────────────────────────────────────────────
-        config_kwargs["lambda_fb"]           = float(getattr(args, "lambda_fb",          0.0) or 0.0)
-        config_kwargs["fb_clash_frac"]       = float(getattr(args, "fb_clash_phi_frac",  0.1)  or 0.1)
-        config_kwargs["fb_clash_sigma"]      = float(getattr(args, "fb_clash_phi_sigma", 1.0)  or 1.0)
-        config_kwargs["fb_target_ss_ratio"]  = float(getattr(args, "fb_target_ss_ratio",  2.0) or 2.0)
-        config_kwargs["fb_target_pack_ratio"]= float(getattr(args, "fb_target_pack_ratio",2.0) or 2.0)
+        config_kwargs["lambda_fb"] = float(getattr(args, "lambda_fb", 0.0) or 0.0)
+        config_kwargs["fb_clash_frac"] = float(getattr(args, "fb_clash_phi_frac", 0.1) or 0.1)
+        config_kwargs["fb_clash_sigma"] = float(getattr(args, "fb_clash_phi_sigma", 1.0) or 1.0)
+        config_kwargs["fb_target_ss_ratio"] = float(getattr(args, "fb_target_ss_ratio", 2.0) or 2.0)
+        config_kwargs["fb_target_pack_ratio"] = float(getattr(args, "fb_target_pack_ratio", 2.0) or 2.0)
         config_kwargs["fb_target_rep_ratio"] = float(getattr(args, "fb_target_rep_ratio", 2.0) or 2.0)
-        config_kwargs["fb_diag_every"]       = int(getattr(args, "fb_diag_every",        200)  or 200)
+        config_kwargs["fb_diag_every"] = int(getattr(args, "fb_diag_every", 200) or 200)
 
         # ── IC Local geometry gap loss ────────────────────────────────────────
-        config_kwargs["lambda_geogap"]         = float(getattr(args, "lambda_geogap",         0.0)  or 0.0)
-        config_kwargs["geogap_margin"]         = float(getattr(args, "geogap_margin",         2.0)  or 2.0)
-        config_kwargs["geogap_angle_sigma"]    = float(getattr(args, "geogap_theta_sigma",    0.25) or 0.25)
-        config_kwargs["geogap_dihedral_sigma"] = float(getattr(args, "geogap_phi_sigma",      0.5)  or 0.5)
-        config_kwargs["geogap_frac_perturbed"] = float(getattr(args, "geogap_frac_perturbed", 0.3)  or 0.3)
-        config_kwargs["geogap_diag_every"]     = int(getattr(args, "geogap_diag_every",       200)  or 200)
+        config_kwargs["lambda_geogap"] = float(getattr(args, "lambda_geogap", 0.0) or 0.0)
+        config_kwargs["geogap_margin"] = float(getattr(args, "geogap_margin", 2.0) or 2.0)
+        config_kwargs["geogap_angle_sigma"] = float(getattr(args, "geogap_theta_sigma", 0.25) or 0.25)
+        config_kwargs["geogap_dihedral_sigma"] = float(getattr(args, "geogap_phi_sigma", 0.5) or 0.5)
+        config_kwargs["geogap_frac_perturbed"] = float(getattr(args, "geogap_frac_perturbed", 0.3) or 0.3)
+        config_kwargs["geogap_diag_every"] = int(getattr(args, "geogap_diag_every", 200) or 200)
 
         # ── Secondary structure basin loss ────────────────────────────────────
         config_kwargs["lambda_basin"] = float(getattr(args, "lambda_basin", 0.0) or 0.0)
         config_kwargs["basin_margin"] = float(getattr(args, "basin_margin", 0.5) or 0.5)
-        config_kwargs["basin_mode"]   = str(getattr(args, "basin_mode", "continuous") or "continuous")
+        config_kwargs["basin_mode"] = str(getattr(args, "basin_mode", "continuous") or "continuous")
         config_kwargs["basin_T_base"] = float(getattr(args, "basin_T_base", 2.0) or 2.0)
 
         # ── Native gap loss ───────────────────────────────────────────────────
-        config_kwargs["lambda_native"]     = float(getattr(args, "lambda_native",     0.0)  or 0.0)
-        config_kwargs["native_margin"]     = float(getattr(args, "native_margin",     0.5)  or 0.5)
-        config_kwargs["native_sigma_min"]  = float(getattr(args, "native_sigma_min",  0.05) or 0.05)
-        config_kwargs["native_sigma_max"]  = float(getattr(args, "native_sigma_max",  0.50) or 0.50)
-        config_kwargs["native_mode"]       = str(getattr(args, "native_mode", "continuous") or "continuous")
-        config_kwargs["native_T_base"]     = float(getattr(args, "native_T_base", 5.0) or 5.0)
+        config_kwargs["lambda_native"] = float(getattr(args, "lambda_native", 0.0) or 0.0)
+        config_kwargs["native_margin"] = float(getattr(args, "native_margin", 0.5) or 0.5)
+        config_kwargs["native_sigma_min"] = float(getattr(args, "native_sigma_min", 0.05) or 0.05)
+        config_kwargs["native_sigma_max"] = float(getattr(args, "native_sigma_max", 0.50) or 0.50)
+        config_kwargs["native_mode"] = str(getattr(args, "native_mode", "continuous") or "continuous")
+        config_kwargs["native_T_base"] = float(getattr(args, "native_T_base", 5.0) or 5.0)
 
         # ── ELT losses (Q-funnel + Z-score + Gap + Frustration) ────────
-        config_kwargs["lambda_funnel"]        = float(getattr(args, "lambda_funnel",       0.0) or 0.0)
-        config_kwargs["funnel_T"]             = float(getattr(args, "funnel_T",            2.0) or 2.0)
-        config_kwargs["funnel_n_decoys"]      = int(getattr(args,   "funnel_n_decoys",     10)  or 10)
-        config_kwargs["funnel_slope_clamp"]   = float(getattr(args, "funnel_slope_clamp",  10.0) or 10.0)
-        config_kwargs["funnel_sigma_min"]     = float(getattr(args, "funnel_sigma_min",    0.05) or 0.05)
-        config_kwargs["funnel_sigma_max"]     = float(getattr(args, "funnel_sigma_max",    2.0) or 2.0)
-        config_kwargs["funnel_contact_cutoff"]= float(getattr(args, "funnel_contact_cutoff", 9.5) or 9.5)
-        config_kwargs["lambda_zscore"]        = float(getattr(args, "lambda_zscore",       0.0) or 0.0)
-        config_kwargs["target_zscore"]         = float(getattr(args, "target_zscore",        3.0) or 3.0)
-        config_kwargs["lambda_gap"]           = float(getattr(args, "lambda_gap",           0.0) or 0.0)
-        config_kwargs["gap_margin"]            = float(getattr(args, "gap_margin",            0.5) or 0.5)
+        config_kwargs["lambda_funnel"] = float(getattr(args, "lambda_funnel", 0.0) or 0.0)
+        config_kwargs["funnel_T"] = float(getattr(args, "funnel_T", 2.0) or 2.0)
+        config_kwargs["funnel_n_decoys"] = int(getattr(args, "funnel_n_decoys", 10) or 10)
+        config_kwargs["funnel_slope_clamp"] = float(getattr(args, "funnel_slope_clamp", 10.0) or 10.0)
+        config_kwargs["funnel_sigma_min"] = float(getattr(args, "funnel_sigma_min", 0.05) or 0.05)
+        config_kwargs["funnel_sigma_max"] = float(getattr(args, "funnel_sigma_max", 2.0) or 2.0)
+        config_kwargs["funnel_contact_cutoff"] = float(getattr(args, "funnel_contact_cutoff", 9.5) or 9.5)
+        config_kwargs["lambda_zscore"] = float(getattr(args, "lambda_zscore", 0.0) or 0.0)
+        config_kwargs["target_zscore"] = float(getattr(args, "target_zscore", 3.0) or 3.0)
+        config_kwargs["lambda_gap"] = float(getattr(args, "lambda_gap", 0.0) or 0.0)
+        config_kwargs["gap_margin"] = float(getattr(args, "gap_margin", 0.5) or 0.5)
         # Run5: saturating exponential margins
-        config_kwargs["funnel_m"]             = float(getattr(args, "funnel_m",             5.0))
-        config_kwargs["funnel_alpha"]         = float(getattr(args, "funnel_alpha",         5.0))
-        config_kwargs["gap_m"]                = float(getattr(args, "gap_m",                5.0))
-        config_kwargs["gap_alpha"]            = float(getattr(args, "gap_alpha",            5.0))
-        config_kwargs["lambda_frustration"]   = float(getattr(args, "lambda_frustration",  0.0) or 0.0)
-        config_kwargs["frustration_T"]        = float(getattr(args, "frustration_T",       2.0) or 2.0)
-        config_kwargs["frustration_n_perms"]  = int(getattr(args,   "frustration_n_perms", 4)   or 4)
-        config_kwargs["elt_every"]            = int(getattr(args,   "elt_every",           5)   or 5)
+        config_kwargs["funnel_m"] = float(getattr(args, "funnel_m", 5.0))
+        config_kwargs["funnel_alpha"] = float(getattr(args, "funnel_alpha", 5.0))
+        config_kwargs["gap_m"] = float(getattr(args, "gap_m", 5.0))
+        config_kwargs["gap_alpha"] = float(getattr(args, "gap_alpha", 5.0))
+        config_kwargs["lambda_frustration"] = float(getattr(args, "lambda_frustration", 0.0) or 0.0)
+        config_kwargs["frustration_T"] = float(getattr(args, "frustration_T", 2.0) or 2.0)
+        config_kwargs["frustration_n_perms"] = int(getattr(args, "frustration_n_perms", 4) or 4)
+        config_kwargs["elt_every"] = int(getattr(args, "elt_every", 5) or 5)
 
         # ── Native depth loss — deepen basin ──────────────────────────────
         _nd = getattr(args, "lambda_native_depth", None)
@@ -723,7 +740,7 @@ def run(args):
         config_kwargs["disable_subterms"] = list(getattr(args, "disable_subterms", []) or [])
 
         # ── Langevin inverse temperature (validation) ─────────────────────────
-        config_kwargs["langevin_beta"]     = float(getattr(args, "langevin_beta",     1.0)  or 1.0)
+        config_kwargs["langevin_beta"] = float(getattr(args, "langevin_beta", 1.0) or 1.0)
 
     config = PhaseConfig(
         name=args.phase,
@@ -757,30 +774,34 @@ def run(args):
     #   new experiment from a pre-trained checkpoint.
     _is_model_only = getattr(args, "resume_model_only", False)
     if trainer_state and not _is_model_only:
-        trainer.global_step                     = trainer_state.get("global_step", 0)
-        trainer.phase_step                      = trainer_state.get("phase_step", 0)
-        trainer.best_composite_score            = trainer_state.get("best_composite_score")
-        trainer.best_composite_score_initialized= trainer_state.get("best_composite_score_initialized", False)
-        trainer.best_val_step                   = trainer_state.get("best_val_step", 0)
-        trainer.early_stopping_counter          = trainer_state.get("early_stopping_counter", 0)
-        trainer.validation_history              = trainer_state.get("validation_history", [])
-        logger.info("Full resume: restored trainer state (global=%d, phase=%d)",
-                    trainer.global_step, trainer.phase_step)
+        trainer.global_step = trainer_state.get("global_step", 0)
+        trainer.phase_step = trainer_state.get("phase_step", 0)
+        trainer.best_composite_score = trainer_state.get("best_composite_score")
+        trainer.best_composite_score_initialized = trainer_state.get("best_composite_score_initialized", False)
+        trainer.best_val_step = trainer_state.get("best_val_step", 0)
+        trainer.early_stopping_counter = trainer_state.get("early_stopping_counter", 0)
+        trainer.validation_history = trainer_state.get("validation_history", [])
+        logger.info(
+            "Full resume: restored trainer state (global=%d, phase=%d)", trainer.global_step, trainer.phase_step
+        )
     elif _is_model_only and checkpoint_state is not None:
         logger.info("Model-only resume: training state reset (global_step=0, fresh start)")
 
-    trainer.val_max_samples    = int(getattr(args, "val_max_samples",    256))
+    trainer.val_max_samples = int(getattr(args, "val_max_samples", 256))
     trainer.val_langevin_steps = int(getattr(args, "val_langevin_steps", 500))
-    _val_step_size             = getattr(args, "val_step_size", None)
-    trainer.val_step_size      = float(_val_step_size) if _val_step_size is not None else None
-    trainer.val_langevin_beta  = float(getattr(args, "langevin_beta", 1.0))
-    logger.info("Validation config: max_samples=%d  langevin_steps=%d  step_size=%s  beta=%.1f",
-                trainer.val_max_samples, trainer.val_langevin_steps,
-                f"{trainer.val_step_size:.1e}" if trainer.val_step_size else "default(1e-4)",
-                trainer.val_langevin_beta)
+    _val_step_size = getattr(args, "val_step_size", None)
+    trainer.val_step_size = float(_val_step_size) if _val_step_size is not None else None
+    trainer.val_langevin_beta = float(getattr(args, "langevin_beta", 1.0))
+    logger.info(
+        "Validation config: max_samples=%d  langevin_steps=%d  step_size=%s  beta=%.1f",
+        trainer.val_max_samples,
+        trainer.val_langevin_steps,
+        f"{trainer.val_step_size:.1e}" if trainer.val_step_size else "default(1e-4)",
+        trainer.val_langevin_beta,
+    )
 
     # ── Full phase gate handling ──────────────────────────────────────────────
-    _is_full_resume = (args.phase == "full" and args.resume and not getattr(args, "resume_model_only", False))
+    _is_full_resume = args.phase == "full" and args.resume and not getattr(args, "resume_model_only", False)
     if args.phase == "full" and hasattr(model, "set_gates"):
         if ramp_gates and ramp_start is not None:
             logger.info("Seeding gates to ramp_start values: %s", ramp_start)
@@ -799,27 +820,24 @@ def run(args):
     # that was written into the checkpoint by a prior gate_schedule application.
     elif args.phase in ("secondary", "local", "repulsion") and hasattr(model, "set_gates"):
         model.set_gates(local=1.0, repulsion=1.0, secondary=1.0, packing=1.0)
-        logger.info("Gates reset to 1.0 for phase '%s' (outer gates; internal lambdas handle scaling)",
-                    args.phase)
+        logger.info("Gates reset to 1.0 for phase '%s' (outer gates; internal lambdas handle scaling)", args.phase)
     elif args.phase == "packing" and hasattr(model, "set_gates"):
         # Packing phase sets its own packing gate via ramp — only fix the others
         current_pack_gate = float(model.gate_packing.item())
         model.set_gates(local=1.0, repulsion=1.0, secondary=1.0, packing=current_pack_gate)
-        logger.info("Gates corrected for phase 'packing': local/rep/ss reset to 1.0, packing=%.4f",
-                    current_pack_gate)
+        logger.info("Gates corrected for phase 'packing': local/rep/ss reset to 1.0, packing=%.4f", current_pack_gate)
         if int(getattr(args, "freeze_gates_steps", 0) or 0) > 0:
             logger.info("Gates will be frozen for first %d steps", int(args.freeze_gates_steps))
 
     # Re-apply gate overrides AFTER phase reset
     _gate_map = {
-        "gate_local":     getattr(args, "set_gate_local",     None),
+        "gate_local": getattr(args, "set_gate_local", None),
         "gate_secondary": getattr(args, "set_gate_secondary", None),
         "gate_repulsion": getattr(args, "set_gate_repulsion", None),
-        "gate_packing":   getattr(args, "set_gate_packing",   None),
+        "gate_packing": getattr(args, "set_gate_packing", None),
     }
     if any(v is not None for v in _gate_map.values()) and hasattr(model, "set_gates"):
-        _kwargs = {name.replace("gate_", ""): val
-                   for name, val in _gate_map.items() if val is not None}
+        _kwargs = {name.replace("gate_", ""): val for name, val in _gate_map.items() if val is not None}
         model.set_gates(**_kwargs)
         for name, val in _kwargs.items():
             logger.info("Gate override (post-reset): gate_%s → %.4f", name, val)
@@ -843,15 +861,19 @@ def run(args):
     # ── Final logging ─────────────────────────────────────────────────────────
     validation_history = getattr(state, "validation_history", [])
     if state.best_composite_score is None:
-        logger.info("Best composite score: N/A (%s) at step %s",
-                    "no validation ran" if not validation_history else "not initialized",
-                    str(state.best_val_step))
+        logger.info(
+            "Best composite score: N/A (%s) at step %s",
+            "no validation ran" if not validation_history else "not initialized",
+            str(state.best_val_step),
+        )
     elif not math.isfinite(state.best_composite_score):
-        logger.warning("Best composite score is non-finite: %s at step %s",
-                       str(state.best_composite_score), str(state.best_val_step))
+        logger.warning(
+            "Best composite score is non-finite: %s at step %s",
+            str(state.best_composite_score),
+            str(state.best_val_step),
+        )
     else:
-        logger.info("Best composite score: %.6f at step %s",
-                    state.best_composite_score, str(state.best_val_step))
+        logger.info("Best composite score: %.6f at step %s", state.best_composite_score, str(state.best_val_step))
 
     logger.info("Phase %s complete", args.phase)
     return 0

@@ -40,11 +40,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn.functional as F
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -53,6 +49,7 @@ logger = get_logger()
 # ---------------------------------------------------------------------------
 # Helpers for steric-safe perturbation
 # ---------------------------------------------------------------------------
+
 
 def _perturb_and_reconstruct(
     theta: torch.Tensor,
@@ -64,10 +61,10 @@ def _perturb_and_reconstruct(
 ) -> torch.Tensor:
     """Perturb ICs and reconstruct via NeRF.  Pure no-grad helper."""
     sig_theta = (0.2 * sigmas).unsqueeze(-1)  # (B, 1)
-    sig_phi   = sigmas.unsqueeze(-1)           # (B, 1)
+    sig_phi = sigmas.unsqueeze(-1)  # (B, 1)
 
     noise_theta = torch.randn_like(theta)
-    noise_phi   = torch.randn_like(phi)
+    noise_phi = torch.randn_like(phi)
 
     if valid_t is not None:
         noise_theta = noise_theta * valid_t.float()
@@ -94,8 +91,8 @@ def _batch_min_nonbonded_dist(
     sep = (idx.unsqueeze(0) - idx.unsqueeze(1)).abs()
     nonbond = sep > seq_sep  # (L, L)
 
-    diff = R.unsqueeze(2) - R.unsqueeze(1)         # (B, L, L, 3)
-    d = torch.sqrt((diff ** 2).sum(-1) + 1e-8)     # (B, L, L)
+    diff = R.unsqueeze(2) - R.unsqueeze(1)  # (B, L, L, 3)
+    d = torch.sqrt((diff**2).sum(-1) + 1e-8)  # (B, L, L)
 
     # Mask bonded pairs and self
     d = d.masked_fill(~nonbond.unsqueeze(0), float("inf"))
@@ -156,17 +153,15 @@ def native_gap_loss(
 
     try:
         # ── Per-sample sigma from LogUniform ──────────────────────────
-        log_sigma = torch.empty(B, device=R.device, dtype=R.dtype).uniform_(
-            math.log(sigma_min), math.log(sigma_max)
-        )
+        log_sigma = torch.empty(B, device=R.device, dtype=R.dtype).uniform_(math.log(sigma_min), math.log(sigma_max))
         sigmas = log_sigma.exp()  # (B,)
 
         # ── Build perturbed structures in (theta, phi) space ──────────
         # After NeRF reconstruction, any sample with min nonbonded dist < 1Å
         # is resampled with halved sigma (up to 3 retries × 3 halvings).
         with torch.no_grad():
-            theta, phi = coords_to_internal(R)    # (B, L-2), (B, L-3)
-            anchor     = extract_anchor(R)         # (B, 3, 3)
+            theta, phi = coords_to_internal(R)  # (B, L-2), (B, L-3)
+            anchor = extract_anchor(R)  # (B, 3, 3)
 
             # Validity masks for padding
             if lengths is not None:
@@ -181,7 +176,12 @@ def native_gap_loss(
             eff_sigmas = sigmas.clone()  # (B,)
 
             R_pert = _perturb_and_reconstruct(
-                theta, phi, anchor, eff_sigmas, valid_t, valid_p,
+                theta,
+                phi,
+                anchor,
+                eff_sigmas,
+                valid_t,
+                valid_p,
             )
 
             # Check min nonbonded dist per sample; retry failing ones
@@ -196,7 +196,12 @@ def native_gap_loss(
                         break
                     # Resample only failing samples with fresh noise at current sigma
                     R_retry = _perturb_and_reconstruct(
-                        theta, phi, anchor, eff_sigmas, valid_t, valid_p,
+                        theta,
+                        phi,
+                        anchor,
+                        eff_sigmas,
+                        valid_t,
+                        valid_p,
                     )
                     # Check which retries passed
                     retry_ok = _batch_min_nonbonded_dist(R_retry, lengths) >= 1.0
@@ -209,7 +214,12 @@ def native_gap_loss(
                     # Halve sigma for remaining failures
                     eff_sigmas[bad_mask] *= 0.5
                     R_retry = _perturb_and_reconstruct(
-                        theta, phi, anchor, eff_sigmas, valid_t, valid_p,
+                        theta,
+                        phi,
+                        anchor,
+                        eff_sigmas,
+                        valid_t,
+                        valid_p,
                     )
                     R_pert[bad_mask] = R_retry[bad_mask]
                     bad_mask = _batch_min_nonbonded_dist(R_pert, lengths) < 1.0
@@ -218,20 +228,20 @@ def native_gap_loss(
             sigmas = eff_sigmas
 
         # ── Evaluate full model ───────────────────────────────────────
-        E_native = model(R.detach(), seq, lengths=lengths)    # (B,)
-        E_pert   = model(R_pert, seq, lengths=lengths)        # (B,)
+        E_native = model(R.detach(), seq, lengths=lengths)  # (B,)
+        E_pert = model(R_pert, seq, lengths=lengths)  # (B,)
 
         if not torch.isfinite(E_native).all() or not torch.isfinite(E_pert).all():
             return (z, {}) if return_diag else z
 
-        gap = E_pert - E_native              # (B,) positive = correct
+        gap = E_pert - E_native  # (B,) positive = correct
 
         # ── Compute loss ──────────────────────────────────────────────
         if mode == "continuous":
             # Use real lengths for per-residue normalization
             L_real = lengths.float() if lengths is not None else torch.full((B,), float(L), device=R.device)
-            gap_per_res = gap / L_real            # (B,)
-            T = T_base * sigmas              # (B,) per-sample temperature
+            gap_per_res = gap / L_real  # (B,)
+            T = T_base * sigmas  # (B,) per-sample temperature
             # Clamp to prevent explosion when gap is negative (perturbed < native)
             loss = torch.exp(-gap_per_res / T).clamp(max=10.0).mean()
         else:
@@ -247,21 +257,21 @@ def native_gap_loss(
                 gap_det = gap.detach()
                 sig_det = sigmas.detach()
                 diag = {
-                    "sigma":    float(sig_det.mean().item()),
+                    "sigma": float(sig_det.mean().item()),
                     "E_native": float(E_native.mean().item()) / L,
-                    "E_pert":   float(E_pert.mean().item()) / L,
+                    "E_pert": float(E_pert.mean().item()) / L,
                     "gap_mean": float(gap_det.mean().item()),
-                    "gap_min":  float(gap_det.min().item()),
-                    "ok":       bool(gap_det.min().item() > 0),
-                    "mode":     mode,
+                    "gap_min": float(gap_det.min().item()),
+                    "ok": bool(gap_det.min().item() > 0),
+                    "mode": mode,
                 }
                 if mode == "continuous":
                     T_det = T_base * sig_det
                     loss_per = torch.exp(-(gap_det / L) / T_det)
                     diag["T_mean"] = float(T_det.mean().item())
                     diag["loss_per_sample_mean"] = float(loss_per.mean().item())
-                    diag["loss_per_sample_min"]  = float(loss_per.min().item())
-                    diag["loss_per_sample_max"]  = float(loss_per.max().item())
+                    diag["loss_per_sample_min"] = float(loss_per.min().item())
+                    diag["loss_per_sample_max"] = float(loss_per.max().item())
                 else:
                     diag["margin"] = margin
             return loss, diag

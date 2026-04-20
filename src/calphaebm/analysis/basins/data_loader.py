@@ -100,7 +100,7 @@ def load_angle_data(
 
                 # Compute angles in radians
                 theta = bond_angles(R).squeeze(0).detach().cpu().numpy()  # (L-2,)
-                phi = torsions(R).squeeze(0).detach().cpu().numpy()       # (L-3,)
+                phi = torsions(R).squeeze(0).detach().cpu().numpy()  # (L-3,)
 
                 theta_deg = np.degrees(theta).astype(np.float32)
                 phi_deg = np.degrees(phi).astype(np.float32)

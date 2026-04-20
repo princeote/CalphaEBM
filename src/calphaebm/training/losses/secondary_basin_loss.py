@@ -90,6 +90,7 @@ logger = get_logger()
 # Basin peak analysis
 # ---------------------------------------------------------------------------
 
+
 def _find_basin_peaks(secondary: torch.nn.Module) -> list[dict]:
     """Find the peak (minimum energy = most probable) position of each basin.
 
@@ -103,23 +104,27 @@ def _find_basin_peaks(secondary: torch.nn.Module) -> list[dict]:
     """
     peaks = []
     for k, basin in enumerate(secondary.basin_potentials):
-        E = basin.energy_grid          # (n_theta, n_phi)
-        tc = basin.theta_centers       # (n_theta,)  degrees
-        pc = basin.phi_centers         # (n_phi,)    degrees
+        E = basin.energy_grid  # (n_theta, n_phi)
+        tc = basin.theta_centers  # (n_theta,)  degrees
+        pc = basin.phi_centers  # (n_phi,)    degrees
 
         # argmin of the 2D energy grid
-        flat_idx  = E.argmin().item()
-        i_theta   = flat_idx // E.shape[1]
-        i_phi     = flat_idx %  E.shape[1]
+        flat_idx = E.argmin().item()
+        i_theta = flat_idx // E.shape[1]
+        i_phi = flat_idx % E.shape[1]
 
-        peaks.append({
-            "basin_idx":      k,
-            "theta_peak_deg": float(tc[i_theta].item()),
-            "phi_peak_deg":   float(pc[i_phi].item()),
-        })
+        peaks.append(
+            {
+                "basin_idx": k,
+                "theta_peak_deg": float(tc[i_theta].item()),
+                "phi_peak_deg": float(pc[i_phi].item()),
+            }
+        )
         logger.info(
             "  Basin %d peak: theta=%.1f°  phi=%.1f° (codebase convention)",
-            k, peaks[-1]["theta_peak_deg"], peaks[-1]["phi_peak_deg"],
+            k,
+            peaks[-1]["theta_peak_deg"],
+            peaks[-1]["phi_peak_deg"],
         )
     return peaks
 
@@ -151,43 +156,52 @@ def _derive_masks(peaks: list[dict]) -> dict:
     if len(peaks) <= max(HELIX_IDX, SHEET_IDX):
         # Fallback: old median-based grouping if not enough basins
         sorted_peaks = sorted(peaks, key=lambda p: p["theta_peak_deg"])
-        helix_theta  = sorted_peaks[0]["theta_peak_deg"]
-        helix_phi    = sorted_peaks[0]["phi_peak_deg"]
+        helix_theta = sorted_peaks[0]["theta_peak_deg"]
+        helix_phi = sorted_peaks[0]["phi_peak_deg"]
         extended_theta = sorted_peaks[-1]["theta_peak_deg"]
-        extended_phi   = sorted_peaks[-1]["phi_peak_deg"]
+        extended_phi = sorted_peaks[-1]["phi_peak_deg"]
     else:
-        helix_theta    = peaks[HELIX_IDX]["theta_peak_deg"]
-        helix_phi      = peaks[HELIX_IDX]["phi_peak_deg"]
+        helix_theta = peaks[HELIX_IDX]["theta_peak_deg"]
+        helix_phi = peaks[HELIX_IDX]["phi_peak_deg"]
         extended_theta = peaks[SHEET_IDX]["theta_peak_deg"]
-        extended_phi   = peaks[SHEET_IDX]["phi_peak_deg"]
+        extended_phi = peaks[SHEET_IDX]["phi_peak_deg"]
 
     # Window half-widths
     theta_gap = abs(extended_theta - helix_theta)
-    theta_hw  = float(max(5.0, min(25.0, theta_gap / 2.0)))
-    phi_hw    = 60.0  # wide enough for the basin
+    theta_hw = float(max(5.0, min(25.0, theta_gap / 2.0)))
+    phi_hw = 60.0  # wide enough for the basin
 
     logger.info(
         "  Helix region:    theta=%.1f±%.1f°  phi=%.1f±%.1f°  (basin %d)",
-        helix_theta, theta_hw, helix_phi, phi_hw, HELIX_IDX,
+        helix_theta,
+        theta_hw,
+        helix_phi,
+        phi_hw,
+        HELIX_IDX,
     )
     logger.info(
         "  Extended region: theta=%.1f±%.1f°  phi=%.1f±%.1f°  (basin %d)",
-        extended_theta, theta_hw, extended_phi, phi_hw, SHEET_IDX,
+        extended_theta,
+        theta_hw,
+        extended_phi,
+        phi_hw,
+        SHEET_IDX,
     )
 
     return {
-        "helix_theta":    helix_theta,
-        "helix_phi":      helix_phi,
+        "helix_theta": helix_theta,
+        "helix_phi": helix_phi,
         "extended_theta": extended_theta,
-        "extended_phi":   extended_phi,
-        "theta_hw":       theta_hw,
-        "phi_hw":         phi_hw,
+        "extended_phi": extended_phi,
+        "theta_hw": theta_hw,
+        "phi_hw": phi_hw,
     }
 
 
 # ---------------------------------------------------------------------------
 # Loss class
 # ---------------------------------------------------------------------------
+
 
 class SecondaryBasinLoss:
     """Secondary structure basin loss using real batch geometry.
@@ -219,17 +233,21 @@ class SecondaryBasinLoss:
         logger.info(
             "SecondaryBasinLoss ready: margin=%.2f  mode=%s  T_base=%.2f  "
             "helix_theta=%.1f±%.1f°  extended_theta=%.1f±%.1f°",
-            self.margin, self.mode, self.T_base,
-            self._regions["helix_theta"],    self._regions["theta_hw"],
-            self._regions["extended_theta"], self._regions["theta_hw"],
+            self.margin,
+            self.mode,
+            self.T_base,
+            self._regions["helix_theta"],
+            self._regions["theta_hw"],
+            self._regions["extended_theta"],
+            self._regions["theta_hw"],
         )
 
     # ------------------------------------------------------------------
 
     def _classify(
         self,
-        theta_deg: torch.Tensor,   # (B, N)  bond angles in degrees
-        phi_deg:   torch.Tensor,   # (B, N)  torsions in degrees (codebase convention)
+        theta_deg: torch.Tensor,  # (B, N)  bond angles in degrees
+        phi_deg: torch.Tensor,  # (B, N)  torsions in degrees (codebase convention)
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return boolean masks (B, N) for helix and extended residues.
 
@@ -239,16 +257,16 @@ class SecondaryBasinLoss:
         r = self._regions
 
         helix_mask = (
-            (theta_deg >= r["helix_theta"] - r["theta_hw"]) &
-            (theta_deg <= r["helix_theta"] + r["theta_hw"]) &
-            (phi_deg   >= r["helix_phi"]   - r["phi_hw"])   &
-            (phi_deg   <= r["helix_phi"]   + r["phi_hw"])
+            (theta_deg >= r["helix_theta"] - r["theta_hw"])
+            & (theta_deg <= r["helix_theta"] + r["theta_hw"])
+            & (phi_deg >= r["helix_phi"] - r["phi_hw"])
+            & (phi_deg <= r["helix_phi"] + r["phi_hw"])
         )
         extended_mask = (
-            (theta_deg >= r["extended_theta"] - r["theta_hw"]) &
-            (theta_deg <= r["extended_theta"] + r["theta_hw"]) &
-            (phi_deg   >= r["extended_phi"]   - r["phi_hw"])   &
-            (phi_deg   <= r["extended_phi"]   + r["phi_hw"])
+            (theta_deg >= r["extended_theta"] - r["theta_hw"])
+            & (theta_deg <= r["extended_theta"] + r["theta_hw"])
+            & (phi_deg >= r["extended_phi"] - r["phi_hw"])
+            & (phi_deg <= r["extended_phi"] + r["phi_hw"])
         )
         return helix_mask, extended_mask
 
@@ -257,8 +275,8 @@ class SecondaryBasinLoss:
     def __call__(
         self,
         model: torch.nn.Module,
-        R:     torch.Tensor,
-        seq:   torch.Tensor,
+        R: torch.Tensor,
+        seq: torch.Tensor,
         lengths: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict]:
         """Compute basin loss on the real training batch.
@@ -278,28 +296,35 @@ class SecondaryBasinLoss:
                      ok (bool), margin.
         """
         device = R.device
-        zero   = torch.zeros((), device=device, dtype=R.dtype)
-        empty  = {"E_helix": 0.0, "E_extended": 0.0, "gap": 0.0,
-                  "n_helix": 0, "n_extended": 0, "ok": True,
-                  "margin": self.margin, "active": False}
+        zero = torch.zeros((), device=device, dtype=R.dtype)
+        empty = {
+            "E_helix": 0.0,
+            "E_extended": 0.0,
+            "gap": 0.0,
+            "n_helix": 0,
+            "n_extended": 0,
+            "ok": True,
+            "margin": self.margin,
+            "active": False,
+        }
 
         if not hasattr(model, "secondary") or model.secondary is None:
             return zero, empty
 
         # ── extract real backbone angles (detached — no grad through geometry)
         with torch.no_grad():
-            theta_raw = bond_angles(R)     # (B, L-2)  radians
-            phi_raw   = torsions(R)        # (B, L-3)  radians
+            theta_raw = bond_angles(R)  # (B, L-2)  radians
+            phi_raw = torsions(R)  # (B, L-3)  radians
 
         # secondary.py alignment: phi aligns with theta[:, :L-3]
         # theta_for_phi = theta[:, :L-3],  phi_aligned = phi
         # both have shape (B, L-3) — use this N for classification
-        N      = phi_raw.shape[1]
-        theta  = theta_raw[:, :N]          # (B, N)
+        N = phi_raw.shape[1]
+        theta = theta_raw[:, :N]  # (B, N)
 
         # Degree conversion — standard Cα pseudo-torsion (Oldfield & Hubbard 1994)
-        theta_deg = torch.rad2deg(theta)          # (B, N)  always positive
-        phi_deg   = torch.rad2deg(phi_raw)        # (B, N)  helix ≈ +50°
+        theta_deg = torch.rad2deg(theta)  # (B, N)  always positive
+        phi_deg = torch.rad2deg(phi_raw)  # (B, N)  helix ≈ +50°
 
         # ── classify residues from basin-derived windows
         helix_mask, extended_mask = self._classify(theta_deg.detach(), phi_deg.detach())
@@ -308,17 +333,22 @@ class SecondaryBasinLoss:
         if lengths is not None:
             idx = torch.arange(N, device=device)
             valid_ic = idx.unsqueeze(0) < (lengths.unsqueeze(1) - 3)  # (B, N)
-            helix_mask    = helix_mask    & valid_ic
+            helix_mask = helix_mask & valid_ic
             extended_mask = extended_mask & valid_ic
 
-        n_helix    = int(helix_mask.sum().item())
+        n_helix = int(helix_mask.sum().item())
         n_extended = int(extended_mask.sum().item())
 
         # Need at least a few residues of each type in the batch to be meaningful
         min_residues = 4
         if n_helix < min_residues or n_extended < min_residues:
-            return zero, {**empty, "n_helix": n_helix, "n_extended": n_extended,
-                          "active": False, "skip_reason": "too_few_residues"}
+            return zero, {
+                **empty,
+                "n_helix": n_helix,
+                "n_extended": n_extended,
+                "active": False,
+                "skip_reason": "too_few_residues",
+            }
 
         # ── per-position secondary energy (with gradients through secondary weights)
         gate = getattr(model, "gate_secondary", torch.ones(1, device=device))
@@ -327,26 +357,26 @@ class SecondaryBasinLoss:
         E_per_pos = gate * E_per_pos
 
         # ── gap loss
-        E_helix    = E_per_pos[helix_mask].mean()
+        E_helix = E_per_pos[helix_mask].mean()
         E_extended = E_per_pos[extended_mask].mean()
-        gap        = E_extended - E_helix   # positive = helix preferred
+        gap = E_extended - E_helix  # positive = helix preferred
 
         if self.mode == "continuous":
             loss = torch.exp(-gap / self.T_base)
         else:
             loss = F.relu(self.margin - gap) ** 2
-        ok   = float(gap.detach().item()) >= self.margin
+        ok = float(gap.detach().item()) >= self.margin
 
         diag = {
-            "E_helix":    float(E_helix.detach().item()),
+            "E_helix": float(E_helix.detach().item()),
             "E_extended": float(E_extended.detach().item()),
-            "gap":        float(gap.detach().item()),
-            "n_helix":    n_helix,
+            "gap": float(gap.detach().item()),
+            "n_helix": n_helix,
             "n_extended": n_extended,
-            "ok":         ok,
-            "margin":     self.margin,
-            "mode":       self.mode,
-            "active":     True,
+            "ok": ok,
+            "margin": self.margin,
+            "mode": self.mode,
+            "active": True,
         }
         return loss, diag
 
@@ -369,11 +399,12 @@ class SecondaryBasinLoss:
 # does internally but stopping before the sum(dim=1).
 # ---------------------------------------------------------------------------
 
+
 def _compute_per_position(
     secondary: torch.nn.Module,
-    theta:     torch.Tensor,   # (B, L-2) radians
-    phi:       torch.Tensor,   # (B, L-3) radians
-    seq:       torch.Tensor,   # (B, L)
+    theta: torch.Tensor,  # (B, L-2) radians
+    phi: torch.Tensor,  # (B, L-3) radians
+    seq: torch.Tensor,  # (B, L)
 ) -> torch.Tensor:
     """Compute total secondary energy per residue position: (B, N).
 
@@ -391,47 +422,52 @@ def _compute_per_position(
     from calphaebm.models.secondary import _cat
 
     _, L = seq.shape
-    N    = phi.shape[1]   # L-3
+    N = phi.shape[1]  # L-3
 
     theta = torch.nan_to_num(theta, nan=0.0)
-    phi   = torch.nan_to_num(phi,   nan=0.0)
+    phi = torch.nan_to_num(phi, nan=0.0)
 
-    e = secondary.emb(seq)   # (B, L, emb_dim)
+    e = secondary.emb(seq)  # (B, L, emb_dim)
 
     # Degree conversion — standard Cα pseudo-torsion (Oldfield & Hubbard 1994)
-    theta_deg = torch.nan_to_num(torch.rad2deg(theta),  nan=0.0)
-    phi_deg   = torch.nan_to_num(torch.rad2deg(phi),    nan=0.0)
+    theta_deg = torch.nan_to_num(torch.rad2deg(theta), nan=0.0)
+    phi_deg = torch.nan_to_num(torch.rad2deg(phi), nan=0.0)
 
-    theta_for_phi = theta_deg[:, :N]    # (B, N)
-    phi_aligned   = phi_deg             # (B, N)
+    theta_for_phi = theta_deg[:, :N]  # (B, N)
+    phi_aligned = phi_deg  # (B, N)
 
-    ctx = _cat(e[:, :N], e[:, 1:N+1], e[:, 2:N+2], e[:, 3:N+3])
+    ctx = _cat(e[:, :N], e[:, 1 : N + 1], e[:, 2 : N + 2], e[:, 3 : N + 3])
     ctx = torch.nan_to_num(ctx, nan=0.0)
 
     # Basin Ramachandran per position (B, N)
     with torch.no_grad():
-        U = torch.stack(
-            [U_k(theta_for_phi, phi_aligned) for U_k in secondary.basin_potentials],
-            dim=-1,
-        ).detach().clamp(max=50.0)
+        U = (
+            torch.stack(
+                [U_k(theta_for_phi, phi_aligned) for U_k in secondary.basin_potentials],
+                dim=-1,
+            )
+            .detach()
+            .clamp(max=50.0)
+        )
     U = torch.nan_to_num(U, nan=0.0)
 
-    logits = (torch.einsum("kf,bnf->bnk", secondary.A, ctx) + secondary.a).clamp(-10., 10.)
-    E_ram_pos = secondary.ram_weight * torch.clamp(-torch.logsumexp(logits - U, dim=-1), -50., 50.)
+    logits = (torch.einsum("kf,bnf->bnk", secondary.A, ctx) + secondary.a).clamp(-10.0, 10.0)
+    E_ram_pos = secondary.ram_weight * torch.clamp(-torch.logsumexp(logits - U, dim=-1), -50.0, 50.0)
 
-    return E_ram_pos   # (B, N)
+    return E_ram_pos  # (B, N)
 
 
 # ---------------------------------------------------------------------------
 # Diagnostics (no_grad, called from diagnostic block)
 # ---------------------------------------------------------------------------
 
+
 def secondary_basin_diagnostics(
-    model:    torch.nn.Module,
-    R:        torch.Tensor,
-    seq:      torch.Tensor,
-    loss_fn:  "SecondaryBasinLoss",
-    lengths:  torch.Tensor | None = None,
+    model: torch.nn.Module,
+    R: torch.Tensor,
+    seq: torch.Tensor,
+    loss_fn: "SecondaryBasinLoss",
+    lengths: torch.Tensor | None = None,
 ) -> dict:
     """Diagnostic-only evaluation — no gradients, logs E_helix/E_extended/gap.
 
@@ -450,10 +486,14 @@ def secondary_basin_diagnostics(
     if diag.get("active", False):
         status = "OK" if diag["ok"] else "FAIL"
         logger.info(
-            "  Basin:    E_helix=%.4f  E_extended=%.4f  gap=%.4f  "
-            "margin=%.2f  n_helix=%d  n_extended=%d  %s",
-            diag["E_helix"], diag["E_extended"], diag["gap"],
-            diag["margin"], diag["n_helix"], diag["n_extended"], status,
+            "  Basin:    E_helix=%.4f  E_extended=%.4f  gap=%.4f  " "margin=%.2f  n_helix=%d  n_extended=%d  %s",
+            diag["E_helix"],
+            diag["E_extended"],
+            diag["gap"],
+            diag["margin"],
+            diag["n_helix"],
+            diag["n_extended"],
+            status,
         )
     else:
         reason = diag.get("skip_reason", "no secondary term")

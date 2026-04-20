@@ -42,10 +42,10 @@ from calphaebm.utils.math import safe_norm
 class BalanceReport:
     """Report from lambda balancing."""
 
-    force_scales: Dict[str, float]          # Median gated force norm per term
-    recommended_lambdas: Dict[str, float]   # Recommended gate values
-    geometry: str = "native"               # Description of geometry used
-    n_samples: int = 1                      # Number of perturbation samples averaged
+    force_scales: Dict[str, float]  # Median gated force norm per term
+    recommended_lambdas: Dict[str, float]  # Recommended gate values
+    geometry: str = "native"  # Description of geometry used
+    n_samples: int = 1  # Number of perturbation samples averaged
 
 
 def _median_force_scale(F: torch.Tensor) -> float:
@@ -252,9 +252,7 @@ def recommend_lambdas(
     avg_scales = {k: float(sum(v) / len(v)) for k, v in all_scales.items()}
 
     if reference not in avg_scales or avg_scales[reference] <= 0:
-        raise ValueError(
-            f"Reference term '{reference}' missing or zero. Available: {list(avg_scales)}"
-        )
+        raise ValueError(f"Reference term '{reference}' missing or zero. Available: {list(avg_scales)}")
 
     ref_scale = avg_scales[reference]
     lo, hi = clip

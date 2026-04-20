@@ -6,7 +6,7 @@
 # Run44 achieved: pack 43→38%, ss 25→30%, gap 0.62→0.70,
 # Rg compaction fixed (76→95%), RMSF reaching 0.46-0.59 Å.
 # But 100K basin test showed slow drift still present.
-# 
+#
 # Run45 gives 10K more steps at same LR schedule to see if
 # continued rebalancing deepens the basin enough for true
 # long-trajectory stability.

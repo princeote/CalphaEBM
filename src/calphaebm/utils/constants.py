@@ -22,8 +22,8 @@ BATCH_SIZE = 32
 # IC training noise (run19+) — noise is in radians, not Å
 # DSM_SIGMA (Å, Cartesian) removed: bond length is now a geometric identity,
 # not a variable. Cartesian noise sigma is meaningless in IC simulation.
-DSM_SIGMA_THETA = 0.05   # Noise sigma for bond angle θ (radians)
-DSM_SIGMA_PHI   = 0.10   # Noise sigma for torsion angle φ (radians)
+DSM_SIGMA_THETA = 0.05  # Noise sigma for bond angle θ (radians)
+DSM_SIGMA_PHI = 0.10  # Noise sigma for torsion angle φ (radians)
 
 # Local energy term constants (from statistical analysis)
 # BOND_SPRING removed: Cα-Cα bond length is exactly 3.8 Å by NeRF construction.

@@ -8,17 +8,7 @@ __version__ = "0.1.0"
 # and cause import errors when running analysis commands
 
 # Instead, make them available as submodules that can be imported when needed
-from calphaebm import (
-    analysis,
-    cli,
-    data,
-    evaluation,
-    geometry,
-    models,
-    simulation,
-    training,
-    utils,
-)
+from calphaebm import analysis, cli, data, evaluation, geometry, models, simulation, training, utils
 
 # Only import commonly used items that have no heavy dependencies
 from calphaebm.utils.logging import get_logger, setup_logger

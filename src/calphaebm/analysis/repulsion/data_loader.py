@@ -9,9 +9,9 @@ from typing import Iterable, Optional
 import numpy as np
 from tqdm import tqdm
 
+from calphaebm.data.id_utils import normalize_to_entry_ids
 from calphaebm.data.pdb_parse import download_cif, parse_cif_ca_chains, split_chain_on_gaps
 from calphaebm.utils.logging import get_logger
-from calphaebm.data.id_utils import normalize_to_entry_ids
 
 logger = get_logger()
 

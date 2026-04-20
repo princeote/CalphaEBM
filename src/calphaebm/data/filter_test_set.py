@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
-from typing import Iterable, List, Set, Dict, Tuple, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import requests
 

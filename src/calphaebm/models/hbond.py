@@ -40,8 +40,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from calphaebm.utils.logging import get_logger
 from calphaebm.models.learnable_buffers import reg
+from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
@@ -74,8 +74,8 @@ class HBondHelix(nn.Module):
 
     def __init__(
         self,
-        init_mu: float = 6.19,      # HQ data: mean d(i,i+4) for helices (3,252 structures)
-        init_sigma: float = 0.19,    # HQ data: std of helical d(i,i+4)
+        init_mu: float = 6.19,  # HQ data: mean d(i,i+4) for helices (3,252 structures)
+        init_sigma: float = 0.19,  # HQ data: std of helical d(i,i+4)
         init_lambda: float = 1.0,
         learn_geometry: bool = False,
     ):
@@ -84,12 +84,12 @@ class HBondHelix(nn.Module):
         reg(self, "mu", torch.tensor(init_mu, dtype=torch.float32), learnable=learn_geometry)
         reg(self, "sigma", torch.tensor(max(init_sigma, 0.05), dtype=torch.float32), learnable=learn_geometry)
         # Learned: overall H-bond strength
-        self._lambda_raw = nn.Parameter(
-            torch.tensor(_inv_softplus(init_lambda), dtype=torch.float32)
-        )
+        self._lambda_raw = nn.Parameter(torch.tensor(_inv_softplus(init_lambda), dtype=torch.float32))
         logger.debug(
             "HBondHelix initialized: μ=%.2fÅ (fixed), σ=%.2fÅ (fixed), λ=%.1f (learned)",
-            init_mu, init_sigma, init_lambda,
+            init_mu,
+            init_sigma,
+            init_lambda,
         )
 
     @property
@@ -98,8 +98,8 @@ class HBondHelix(nn.Module):
 
     def forward(
         self,
-        p_helix: torch.Tensor,    # (B, N) helix probability per position
-        R: torch.Tensor,           # (B, L, 3) Cα coordinates
+        p_helix: torch.Tensor,  # (B, N) helix probability per position
+        R: torch.Tensor,  # (B, L, 3) Cα coordinates
         normalize_by_length: bool = True,
         lengths: torch.Tensor | None = None,  # (B,) actual chain lengths
     ) -> torch.Tensor:
@@ -131,7 +131,7 @@ class HBondHelix(nn.Module):
         p2 = p2[:, :n_hb]  # (B, n_hb)
 
         # Distances: d(residue k+1, residue k+5) for k = 0..n_hb-1
-        diff = R[:, 1:n_hb+1] - R[:, 5:n_hb+5]  # (B, n_hb, 3)
+        diff = R[:, 1 : n_hb + 1] - R[:, 5 : n_hb + 5]  # (B, n_hb, 3)
         d_i4 = torch.sqrt((diff * diff).sum(dim=-1) + 1e-8)  # (B, n_hb)
 
         # Gaussian distance function
@@ -141,7 +141,7 @@ class HBondHelix(nn.Module):
         signal = p2 * g  # (B, n_hb)
 
         # Smooth switch: x² / (x² + τ²)
-        tau_sq = 0.01 ** 2
+        tau_sq = 0.01**2
         switch = signal.detach() ** 2 / (signal.detach() ** 2 + tau_sq)  # (B, n_hb)
         E_per_pos = signal * switch  # (B, n_hb)
 
@@ -171,9 +171,9 @@ class HBondSheet(nn.Module):
 
     def __init__(
         self,
-        init_mu1: float = 5.79,      # HQ data: anti-parallel peak
+        init_mu1: float = 5.79,  # HQ data: anti-parallel peak
         init_sigma1: float = 0.87,
-        init_mu2: float = 10.68,     # HQ data: parallel/wider peak
+        init_mu2: float = 10.68,  # HQ data: parallel/wider peak
         init_sigma2: float = 1.78,
         init_lambda: float = 1.0,
         min_seq_sep: int = 5,
@@ -187,14 +187,18 @@ class HBondSheet(nn.Module):
         reg(self, "mu2", torch.tensor(init_mu2, dtype=torch.float32), learnable=learn_geometry)
         reg(self, "sigma2", torch.tensor(max(init_sigma2, 0.05), dtype=torch.float32), learnable=learn_geometry)
         # Learned: overall H-bond strength
-        self._lambda_raw = nn.Parameter(
-            torch.tensor(_inv_softplus(init_lambda), dtype=torch.float32))
+        self._lambda_raw = nn.Parameter(torch.tensor(_inv_softplus(init_lambda), dtype=torch.float32))
         self.min_seq_sep = int(min_seq_sep)
         self.max_dist = float(max_dist)
 
         logger.debug(
             "HBondSheet initialized: μ1=%.2fÅ σ1=%.2fÅ, μ2=%.2fÅ σ2=%.2fÅ (all fixed), λ=%.1f (learned), min_sep=%d",
-            init_mu1, init_sigma1, init_mu2, init_sigma2, init_lambda, min_seq_sep,
+            init_mu1,
+            init_sigma1,
+            init_mu2,
+            init_sigma2,
+            init_lambda,
+            min_seq_sep,
         )
 
     @property
@@ -203,10 +207,10 @@ class HBondSheet(nn.Module):
 
     def forward(
         self,
-        p_ext: torch.Tensor,       # (B, N) sheet probability per position
-        R: torch.Tensor,            # (B, L, 3) Cα coordinates
-        r: torch.Tensor,            # (B, L, K) neighbor distances from topk
-        j_idx: torch.Tensor,        # (B, L, K) neighbor indices from topk
+        p_ext: torch.Tensor,  # (B, N) sheet probability per position
+        R: torch.Tensor,  # (B, L, 3) Cα coordinates
+        r: torch.Tensor,  # (B, L, K) neighbor distances from topk
+        j_idx: torch.Tensor,  # (B, L, K) neighbor indices from topk
         normalize_by_length: bool = True,
         lengths: torch.Tensor | None = None,  # (B,) actual chain lengths
     ) -> torch.Tensor:
@@ -222,7 +226,7 @@ class HBondSheet(nn.Module):
         p_full = torch.zeros(B, L, device=R.device, dtype=p_ext.dtype)
         offset = 1  # basin assignment starts at residue 1
         end = min(offset + N, L)
-        p_full[:, offset:end] = p_ext[:, :end - offset]
+        p_full[:, offset:end] = p_ext[:, : end - offset]
 
         p_i = p_full  # (B, L)
 
@@ -244,10 +248,10 @@ class HBondSheet(nn.Module):
 
         signal = p_i.unsqueeze(-1) * p_j * g  # (B, L, K)
 
-        tau_sq = 0.02 ** 2
+        tau_sq = 0.02**2
         switch = signal.detach() ** 2 / (signal.detach() ** 2 + tau_sq)
         E_per_pair = signal * switch
-        E_per_residue = E_per_pair.sum(dim=-1)     # (B, L)
+        E_per_residue = E_per_pair.sum(dim=-1)  # (B, L)
 
         E = -self.lambda_hb * E_per_residue.sum(dim=-1)  # (B,)
         if normalize_by_length:
@@ -261,11 +265,11 @@ class HBondSheet(nn.Module):
 
 def compute_basin_probabilities(
     basin_potentials: nn.ModuleList,
-    theta_deg: torch.Tensor,       # (B, N)
-    phi_deg: torch.Tensor,         # (B, N)
-    context: torch.Tensor,         # (B, N, ctx_dim) — AA context embeddings
-    A: torch.Tensor,               # (K, ctx_dim) — mixture weight matrix
-    a: torch.Tensor,               # (K,) — mixture bias
+    theta_deg: torch.Tensor,  # (B, N)
+    phi_deg: torch.Tensor,  # (B, N)
+    context: torch.Tensor,  # (B, N, ctx_dim) — AA context embeddings
+    A: torch.Tensor,  # (K, ctx_dim) — mixture weight matrix
+    a: torch.Tensor,  # (K,) — mixture bias
 ) -> torch.Tensor:
     """Compute per-position basin probabilities from E_ram surfaces.
 
@@ -276,8 +280,8 @@ def compute_basin_probabilities(
         (B, N, K) probability of each basin at each position.
     """
     theta_deg = torch.nan_to_num(theta_deg, nan=0.0)
-    phi_deg   = torch.nan_to_num(phi_deg,   nan=0.0)
-    context   = torch.nan_to_num(context,   nan=0.0)
+    phi_deg = torch.nan_to_num(phi_deg, nan=0.0)
+    context = torch.nan_to_num(context, nan=0.0)
 
     # Logits: (B, N, K)
     logits = torch.einsum("kf,bnf->bnk", A, context) + a
@@ -285,9 +289,7 @@ def compute_basin_probabilities(
 
     # Basin energies: (B, N, K)
     with torch.no_grad():
-        U = torch.stack(
-            [U_k(theta_deg, phi_deg) for U_k in basin_potentials], dim=-1
-        )
+        U = torch.stack([U_k(theta_deg, phi_deg) for U_k in basin_potentials], dim=-1)
     U = U.detach()
     U = torch.nan_to_num(U, nan=0.0, posinf=0.0, neginf=0.0)
     U = torch.clamp(U, max=50.0)

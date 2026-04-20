@@ -24,9 +24,9 @@ import torch
 import torch.nn as nn
 
 from calphaebm.models.local import LocalEnergy
+from calphaebm.models.packing import PackingEnergy
 from calphaebm.models.repulsion import RepulsionEnergy
 from calphaebm.models.secondary import SecondaryStructureEnergy
-from calphaebm.models.packing import PackingEnergy
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -73,8 +73,8 @@ class TotalEnergy(nn.Module):
         coord_lambda: float = 0.01,
         coord_n_lo: Optional[list] = None,
         coord_n_hi: Optional[list] = None,
-        coord_n_mean: Optional[list] = None,   # per-AA mean coordination (suppresses _Hydrophobic warning)
-        coord_n_std: Optional[list] = None,    # per-AA std  coordination
+        coord_n_mean: Optional[list] = None,  # per-AA mean coordination (suppresses _Hydrophobic warning)
+        coord_n_std: Optional[list] = None,  # per-AA std  coordination
         # Local term parameters
         init_bond_spring: float = 50.0,
         init_theta_theta_weight: float = 1.0,
@@ -98,13 +98,13 @@ class TotalEnergy(nn.Module):
         # Packing extra kwargs (Run5: ρ params, constraint params, coord stats)
         packing_extra: Optional[Dict] = None,
         # Learnable buffer flags (all default False = backwards compat)
-        learn_packing_coords:    bool = False,
-        learn_packing_density:   bool = False,
-        learn_penalty_shapes:    bool = False,
-        learn_packing_bounds:    bool = False,
+        learn_packing_coords: bool = False,
+        learn_packing_density: bool = False,
+        learn_penalty_shapes: bool = False,
+        learn_packing_bounds: bool = False,
         learn_penalty_strengths: bool = False,
-        learn_gate_geometry:     bool = False,
-        learn_hbond_geometry:    bool = False,
+        learn_gate_geometry: bool = False,
+        learn_hbond_geometry: bool = False,
         # Device
         device: Optional[torch.device] = None,
     ):
@@ -191,18 +191,18 @@ class TotalEnergy(nn.Module):
         # Outer gates — frozen at 1.0 (not trained; internal lambdas handle scaling)
         # In physics_prior mode, local term is zeroed (random MLP → pure noise).
         _gate_local_init = 0.0 if physics_prior else 1.0
-        self.register_buffer("gate_local",     torch.tensor(_gate_local_init, dtype=torch.float32))
+        self.register_buffer("gate_local", torch.tensor(_gate_local_init, dtype=torch.float32))
         self.register_buffer("gate_repulsion", torch.tensor(1.0, dtype=torch.float32))
         self.register_buffer("gate_secondary", torch.tensor(1.0, dtype=torch.float32))
-        self.register_buffer("gate_packing",   torch.tensor(1.0, dtype=torch.float32))
+        self.register_buffer("gate_packing", torch.tensor(1.0, dtype=torch.float32))
 
         if physics_prior:
-            logger.info("TotalEnergy: physics_prior=True — gate_local=0.0, "
-                        "secondary logits forced to 0")
+            logger.info("TotalEnergy: physics_prior=True — gate_local=0.0, " "secondary logits forced to 0")
 
         # Summary is logged post-load by train_main calling _log_summary()
-        logger.debug("TotalEnergy model constructed (%d params)",
-                     sum(p.numel() for p in self.parameters() if p.requires_grad))
+        logger.debug(
+            "TotalEnergy model constructed (%d params)", sum(p.numel() for p in self.parameters() if p.requires_grad)
+        )
 
         if device is not None:
             self.to(device)
@@ -222,7 +222,8 @@ class TotalEnergy(nn.Module):
         ls = getattr(self.local, "_init_summary", {})
         lp = ls.get("total_params", "?")
         lines.append(
-            "  local       %5sp  %d-mer θφ MLP(in=%s, h=%s)" % (
+            "  local       %5sp  %d-mer θφ MLP(in=%s, h=%s)"
+            % (
                 lp,
                 ls.get("window_size", "?"),
                 ls.get("input_dim", "?"),
@@ -235,7 +236,8 @@ class TotalEnergy(nn.Module):
             ss = getattr(self.secondary, "_init_summary", {})
             sp = ss.get("total_params", "?")
             lines.append(
-                "  secondary   %5sp  E_ram(%d basins) + E_hb_α(μ=%.1fÅ) + E_hb_β(μ1=%.1f,μ2=%.1fÅ)" % (
+                "  secondary   %5sp  E_ram(%d basins) + E_hb_α(μ=%.1fÅ) + E_hb_β(μ1=%.1f,μ2=%.1fÅ)"
+                % (
                     sp,
                     ss.get("num_basins", 4),
                     ss.get("hb_helix_mu", 0),
@@ -249,7 +251,8 @@ class TotalEnergy(nn.Module):
             ps = getattr(self.packing, "_init_summary", {})
             pp = ps.get("total_params", "?")
             lines.append(
-                "  packing     %5sp  E_geom MLP(%dp) + E_contact(%dp, SVD init)" % (
+                "  packing     %5sp  E_geom MLP(%dp) + E_contact(%dp, SVD init)"
+                % (
                     pp,
                     ps.get("geom_params", 0),
                     ps.get("contact_params", 0),
@@ -262,8 +265,11 @@ class TotalEnergy(nn.Module):
             rp = rs.get("total_params", 1)
             r_range = rs.get("r_range", (0, 0))
             lines.append(
-                "  repulsion   %5sp  tabulated wall [%.1f, %.1f]Å" % (
-                    rp, r_range[0], r_range[1],
+                "  repulsion   %5sp  tabulated wall [%.1f, %.1f]Å"
+                % (
+                    rp,
+                    r_range[0],
+                    r_range[1],
                 )
             )
 
@@ -287,7 +293,8 @@ class TotalEnergy(nn.Module):
 
         # Gates
         lines.append(
-            "  Gates:    local=%.1f  secondary=%.1f  repulsion=%.1f  packing=%.1f" % (
+            "  Gates:    local=%.1f  secondary=%.1f  repulsion=%.1f  packing=%.1f"
+            % (
                 self.gate_local.item(),
                 self.gate_secondary.item(),
                 self.gate_repulsion.item(),
@@ -306,9 +313,7 @@ class TotalEnergy(nn.Module):
         prefix = f"[{context}] " if context else ""
         logger.info("%sPacking v3: contact-only (geom MLP removed)", prefix)
 
-
-    def forward_dsm(self, R: torch.Tensor, seq: torch.Tensor,
-                    lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def forward_dsm(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         """Energy for DSM training — excludes bond_spring from local term.
 
         Bond_spring is a fixed physical buffer (k=750 at gate=5). Its forces
@@ -332,8 +337,7 @@ class TotalEnergy(nn.Module):
 
         return E
 
-    def forward(self, R: torch.Tensor, seq: torch.Tensor,
-                lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         """Full energy including fixed bond_spring.
 
         Used for diagnostics, Langevin generation, geogap, and energy gap
@@ -353,8 +357,9 @@ class TotalEnergy(nn.Module):
         return E
 
     @torch.no_grad()
-    def term_energies(self, R: torch.Tensor, seq: torch.Tensor,
-                      lengths: torch.Tensor | None = None) -> Dict[str, torch.Tensor]:
+    def term_energies(
+        self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None
+    ) -> Dict[str, torch.Tensor]:
         out: Dict[str, torch.Tensor] = {"local": self.local(R, seq, lengths=lengths)}
         if self.repulsion is not None:
             out["repulsion"] = self.repulsion(R, seq, lengths=lengths)
@@ -413,8 +418,7 @@ def create_total_energy(
 
     if not repulsion_path.exists():
         raise FileNotFoundError(
-            f"Repulsion data directory not found: {repulsion_data_dir}. "
-            "Run 'calphaebm analyze repulsion' first."
+            f"Repulsion data directory not found: {repulsion_data_dir}. " "Run 'calphaebm analyze repulsion' first."
         )
 
     if packing_data_dir is not None:
@@ -435,10 +439,10 @@ def create_total_energy(
     packing_rg_r0 = kwargs.pop("packing_rg_r0", 2.0)
     packing_rg_nu = kwargs.pop("packing_rg_nu", 0.38)
     coord_lambda = kwargs.pop("coord_lambda", 0.01)
-    coord_n_lo   = kwargs.pop("coord_n_lo", None)
-    coord_n_hi   = kwargs.pop("coord_n_hi", None)
+    coord_n_lo = kwargs.pop("coord_n_lo", None)
+    coord_n_hi = kwargs.pop("coord_n_hi", None)
     coord_n_mean = kwargs.pop("coord_n_mean", None)
-    coord_n_std  = kwargs.pop("coord_n_std", None)
+    coord_n_std = kwargs.pop("coord_n_std", None)
     local_window_size = kwargs.pop("local_window_size", 8)
     packing_extra = kwargs.pop("packing_extra", None)
 

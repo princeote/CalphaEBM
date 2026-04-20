@@ -24,94 +24,78 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-
 # ---------------------------------------------------------------------------
 # Defaults for all optional fields
 # ---------------------------------------------------------------------------
 _DEFAULTS: Dict[str, Any] = {
     # Core training
-    "lr":                        3e-4,
-    "lr_schedule":               None,
-    "lr_final":                  None,
-    "save_every":                500,
-    "validate_every":            500,
-    "early_stopping_patience":   None,
-    "early_stopping_min_delta":  0.001,
-    "weight_decay":              0.01,
-
+    "lr": 3e-4,
+    "lr_schedule": None,
+    "lr_final": None,
+    "save_every": 500,
+    "validate_every": 500,
+    "early_stopping_patience": None,
+    "early_stopping_min_delta": 0.001,
+    "weight_decay": 0.01,
     # Gate schedules
-    "gate_schedule":             None,
-
+    "gate_schedule": None,
     # DSM sigma
-    "sigma":                     0.25,
-    "sigma_min":                 None,
-    "sigma_max":                 None,
-
+    "sigma": 0.25,
+    "sigma_min": None,
+    "sigma_max": None,
     # Full-phase gate ramping
-    "ramp_gates":                False,
-    "ramp_start":                None,
-    "ramp_end":                  None,
-    "ramp_steps":                5000,
-    "freeze_gates_steps":        0,
-
+    "ramp_gates": False,
+    "ramp_start": None,
+    "ramp_end": None,
+    "ramp_steps": 5000,
+    "freeze_gates_steps": 0,
     # Force balance loss
-    "lambda_fb":                 0.0,
-    "fb_sigma_thermal":          0.3,
-    "fb_clash_frac":             0.05,
-    "fb_clash_sigma":            0.5,
-    "fb_target_ss_ratio":        2.0,
-    "fb_target_pack_ratio":      2.0,
-    "fb_target_rep_ratio":       2.0,
-    "fb_diag_every":             200,
-
+    "lambda_fb": 0.0,
+    "fb_sigma_thermal": 0.3,
+    "fb_clash_frac": 0.05,
+    "fb_clash_sigma": 0.5,
+    "fb_target_ss_ratio": 2.0,
+    "fb_target_pack_ratio": 2.0,
+    "fb_target_rep_ratio": 2.0,
+    "fb_diag_every": 200,
     # Local geometry gap loss
-    "lambda_geogap":             0.0,
-    "geogap_margin":             2.0,
-    "geogap_bond_sigma":         0.3,
-    "geogap_angle_sigma":        0.2,
-    "geogap_dihedral_sigma":     0.4,
-    "geogap_frac_perturbed":     0.3,
-    "geogap_diag_every":         200,
-
+    "lambda_geogap": 0.0,
+    "geogap_margin": 2.0,
+    "geogap_bond_sigma": 0.3,
+    "geogap_angle_sigma": 0.2,
+    "geogap_dihedral_sigma": 0.4,
+    "geogap_frac_perturbed": 0.3,
+    "geogap_diag_every": 200,
     # Packing-phase ramping
-    "ramp_pack_start":           None,
-    "ramp_pack_end":             None,
-
+    "ramp_pack_start": None,
+    "ramp_pack_end": None,
     # Packing logOE pre-training
-    "packing_pretrain":          False,
-    "packing_logoe_data_dir":    None,
-    "packing_logoe_scale":       5.0,
-
+    "packing_pretrain": False,
+    "packing_logoe_data_dir": None,
+    "packing_logoe_scale": 5.0,
     # Optimizer LR multipliers
-    "scalar_lr_mult":            20.0,
-
+    "scalar_lr_mult": 20.0,
     # Packing scalar freeze
-    "freeze_packing_scalar":     False,
-
+    "freeze_packing_scalar": False,
     # Packing contrastive loss
-    "lambda_pack_contrastive":   0.0,
-    "pack_contrastive_margin":   0.5,
-
+    "lambda_pack_contrastive": 0.0,
+    "pack_contrastive_margin": 0.5,
     # Energy balance loss
-    "lambda_balance":            0.0,
-    "balance_r":                 3.0,
-
+    "lambda_balance": 0.0,
+    "balance_r": 3.0,
     # Secondary structure basin loss
-    "lambda_basin":              0.0,
-    "basin_margin":              0.5,
-
+    "lambda_basin": 0.0,
+    "basin_margin": 0.5,
     # Native gap loss
-    "lambda_native":             0.0,
-    "native_margin":             0.5,
-    "native_sigma_min":          0.05,
-    "native_sigma_max":          0.50,
-
+    "lambda_native": 0.0,
+    "native_margin": 0.5,
+    "native_sigma_min": 0.05,
+    "native_sigma_max": 0.50,
     # Validation speed controls
-    "val_max_samples":           256,
-    "val_langevin_steps":        500,
-
+    "val_max_samples": 256,
+    "val_langevin_steps": 500,
     # Langevin inverse temperature
-    "langevin_beta":             1.0,
+    "langevin_beta": 1.0,
 }
 
 _REQUIRED = ("name", "terms", "freeze", "loss_fn", "n_steps")

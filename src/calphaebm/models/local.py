@@ -33,7 +33,8 @@ def _check_lengths(R: torch.Tensor, lengths: torch.Tensor | None, caller: str) -
         logger.warning(
             "[%s] lengths=None with batch_size=%d — padding atoms will corrupt "
             "energy. Pass lengths to all model calls during training.",
-            caller, R.shape[0],
+            caller,
+            R.shape[0],
         )
         _MISSING_LENGTHS_WARNED = True
 
@@ -50,8 +51,7 @@ def _cat(*xs: torch.Tensor) -> torch.Tensor:
 class _StableMLP(nn.Module):
     """MLP with bounded output via scaled tanh."""
 
-    def __init__(self, in_dim: int, hidden_dims: tuple[int, ...],
-                 out_dim: int = 1, scale: float = 2.0):
+    def __init__(self, in_dim: int, hidden_dims: tuple[int, ...], out_dim: int = 1, scale: float = 2.0):
         super().__init__()
         self.scale = scale
         layers: list[nn.Module] = []
@@ -92,17 +92,25 @@ class LocalEnergy(nn.Module):
     ):
         super().__init__()
 
-        for k in ["data_dir", "init_bond_spring", "bond_length_ideal",
-                  "init_theta_theta_weight", "init_delta_phi_weight",
-                  "init_phi_phi_weight", "smooth_delta_phi",
-                  "delta_phi_smooth_sigma_deg",
-                  "theta_theta_hidden", "phi_phi_hidden",
-                  "theta_theta_raw_scale", "delta_phi_raw_scale",
-                  "target_contribution", "bond_length_eps"]:
+        for k in [
+            "data_dir",
+            "init_bond_spring",
+            "bond_length_ideal",
+            "init_theta_theta_weight",
+            "init_delta_phi_weight",
+            "init_phi_phi_weight",
+            "smooth_delta_phi",
+            "delta_phi_smooth_sigma_deg",
+            "theta_theta_hidden",
+            "phi_phi_hidden",
+            "theta_theta_raw_scale",
+            "delta_phi_raw_scale",
+            "target_contribution",
+            "bond_length_eps",
+        ]:
             legacy_kwargs.pop(k, None)
         if legacy_kwargs:
-            logger.warning("LocalEnergy: unexpected kwargs ignored: %s",
-                          list(legacy_kwargs.keys()))
+            logger.warning("LocalEnergy: unexpected kwargs ignored: %s", list(legacy_kwargs.keys()))
 
         self.W = int(window_size)
         self.weight_eps = float(weight_eps)
@@ -113,8 +121,7 @@ class LocalEnergy(nn.Module):
         ctx_dim = self.W * emb_dim
 
         self._lambda_raw = nn.Parameter(
-            torch.tensor(_inv_softplus(init_weight, eps=self.weight_eps),
-                        dtype=torch.float32)
+            torch.tensor(_inv_softplus(init_weight, eps=self.weight_eps), dtype=torch.float32)
         )
 
         angle_feat_dim = 3 * self.W
@@ -137,7 +144,9 @@ class LocalEnergy(nn.Module):
         }
         logger.info(
             "LocalEnergy: %d-mer, input_dim=%d, hidden=%s, params=%d",
-            self.W, angle_feat_dim + ctx_dim, hidden_dims,
+            self.W,
+            angle_feat_dim + ctx_dim,
+            hidden_dims,
             n_mlp + n_emb + 1,
         )
 
@@ -152,16 +161,15 @@ class LocalEnergy(nn.Module):
     def theta_phi_weight(self) -> torch.Tensor:
         return self.weight
 
-    def theta_phi_energy(self, R: torch.Tensor, seq: torch.Tensor,
-                         lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def theta_phi_energy(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         B, L, _ = R.shape
         W = self.W
         min_len = W + 3
         if L < min_len:
             return torch.zeros(B, device=R.device)
 
-        theta = bond_angles(R)    # (B, L-2)
-        phi = torsions(R)         # (B, L-3)
+        theta = bond_angles(R)  # (B, L-2)
+        phi = torsions(R)  # (B, L-3)
 
         N = phi.shape[1] - (W - 1)
         if N <= 0:
@@ -174,15 +182,15 @@ class LocalEnergy(nn.Module):
 
         angle_parts = []
         for k in range(W):
-            angle_parts.append(cos_theta[:, k:k+N])
-            angle_parts.append(sin_phi[:, k:k+N])
-            angle_parts.append(cos_phi[:, k:k+N])
+            angle_parts.append(cos_theta[:, k : k + N])
+            angle_parts.append(sin_phi[:, k : k + N])
+            angle_parts.append(cos_phi[:, k : k + N])
         angle_feats = torch.stack(angle_parts, dim=-1)
         angle_feats = torch.nan_to_num(angle_feats, nan=0.0)
 
         # ── AA embedding context ─────────────────────────────────────────
         e = self.emb(seq)
-        ctx_parts = [e[:, k:k+N] for k in range(W)]
+        ctx_parts = [e[:, k : k + N] for k in range(W)]
         ctx = _cat(*ctx_parts)
         ctx = torch.nan_to_num(ctx, nan=0.0)
 
@@ -200,9 +208,9 @@ class LocalEnergy(nn.Module):
         # Per-position validity, then mean over W consecutive → per-window
         with torch.no_grad():
             n_pos = min(theta.shape[1], phi.shape[1])
-            v_pos = self.rama_gate(theta[:, :n_pos], phi[:, :n_pos])   # (B, n_pos)
-            gate_parts = [v_pos[:, k:k+N] for k in range(W)]
-            win_gate = torch.stack(gate_parts, dim=-1).mean(dim=-1)    # (B, N)
+            v_pos = self.rama_gate(theta[:, :n_pos], phi[:, :n_pos])  # (B, n_pos)
+            gate_parts = [v_pos[:, k : k + N] for k in range(W)]
+            win_gate = torch.stack(gate_parts, dim=-1).mean(dim=-1)  # (B, N)
 
         mlp_out = mlp_out * win_gate
 
@@ -216,11 +224,9 @@ class LocalEnergy(nn.Module):
 
         return E
 
-    def forward(self, R: torch.Tensor, seq: torch.Tensor,
-                lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         _check_lengths(R, lengths, "LocalEnergy")
         return self.theta_phi_energy(R, seq, lengths=lengths)
 
-    def forward_learned(self, R: torch.Tensor, seq: torch.Tensor,
-                        lengths: torch.Tensor | None = None) -> torch.Tensor:
+    def forward_learned(self, R: torch.Tensor, seq: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
         return self.forward(R, seq, lengths=lengths)

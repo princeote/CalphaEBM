@@ -56,11 +56,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -70,13 +66,14 @@ THETA_PHI_RATIO = 0.161
 # ---------------------------------------------------------------------------
 # Default margin hyperparameters (Run5)
 # ---------------------------------------------------------------------------
-DEFAULT_MARGIN_M     = 5.0   # maximum margin (saturates here)
-DEFAULT_MARGIN_ALPHA = 5.0   # steepness (1/α = 0.2 ΔQ for 63% of max)
+DEFAULT_MARGIN_M = 5.0  # maximum margin (saturates here)
+DEFAULT_MARGIN_ALPHA = 5.0  # steepness (1/α = 0.2 ΔQ for 63% of max)
 
 
 # ---------------------------------------------------------------------------
 # Saturating exponential margin helper
 # ---------------------------------------------------------------------------
+
 
 def _saturating_margin(delta: torch.Tensor, m: float, alpha: float) -> torch.Tensor:
     """Compute saturating exponential margin: m * (1 - exp(-α * delta)).
@@ -97,6 +94,7 @@ def _saturating_margin(delta: torch.Tensor, m: float, alpha: float) -> torch.Ten
 # Padding mask helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_valid_mask(L: int, lengths: torch.Tensor) -> torch.Tensor:
     idx = torch.arange(L, device=lengths.device)
     return idx.unsqueeze(0) < lengths.unsqueeze(1)
@@ -111,6 +109,7 @@ def _make_pair_valid_mask(L: int, lengths: torch.Tensor) -> torch.Tensor:
 # Native contact pre-computation
 # ---------------------------------------------------------------------------
 
+
 def _precompute_native_contacts(
     R_native: torch.Tensor,
     lengths: torch.Tensor,
@@ -120,12 +119,11 @@ def _precompute_native_contacts(
     B, L, _ = R_native.shape
 
     diff = R_native.unsqueeze(2) - R_native.unsqueeze(1)
-    d_native = torch.sqrt((diff ** 2).sum(-1) + 1e-8)
+    d_native = torch.sqrt((diff**2).sum(-1) + 1e-8)
 
     idx = torch.arange(L, device=R_native.device)
     sep_mask = (idx.unsqueeze(0) - idx.unsqueeze(1)).abs() >= seq_sep
-    triu = torch.triu(torch.ones(L, L, device=R_native.device,
-                                 dtype=torch.bool), diagonal=1)
+    triu = torch.triu(torch.ones(L, L, device=R_native.device, dtype=torch.bool), diagonal=1)
     pair_mask = (sep_mask & triu).unsqueeze(0).expand(B, -1, -1)
 
     pair_valid = _make_pair_valid_mask(L, lengths)
@@ -140,6 +138,7 @@ def _precompute_native_contacts(
 # Q computation  (Best, Hummer & Eaton 2013)
 # ---------------------------------------------------------------------------
 
+
 def _compute_Q(
     R_current: torch.Tensor,
     d_native: torch.Tensor,
@@ -149,7 +148,7 @@ def _compute_Q(
     lambda_factor: float = 1.2,
 ) -> torch.Tensor:
     diff = R_current.unsqueeze(2) - R_current.unsqueeze(1)
-    d_current = torch.sqrt((diff ** 2).sum(-1) + 1e-8)
+    d_current = torch.sqrt((diff**2).sum(-1) + 1e-8)
 
     exponent = beta * (d_current - lambda_factor * d_native)
     exponent = exponent.clamp(max=30.0)
@@ -163,23 +162,24 @@ def _compute_Q(
 # Min-distance check for steric viability
 # ---------------------------------------------------------------------------
 
-def _min_nonbonded_dist(R_single: torch.Tensor, L_real: int,
-                         seq_sep: int = 3) -> float:
+
+def _min_nonbonded_dist(R_single: torch.Tensor, L_real: int, seq_sep: int = 3) -> float:
     coords = R_single[:L_real]
     if L_real < seq_sep + 1:
-        return float('inf')
+        return float("inf")
     diff = coords.unsqueeze(1) - coords.unsqueeze(0)
-    d = torch.sqrt((diff ** 2).sum(-1) + 1e-8)
+    d = torch.sqrt((diff**2).sum(-1) + 1e-8)
     idx = torch.arange(L_real, device=R_single.device)
     nonbond = (idx.unsqueeze(0) - idx.unsqueeze(1)).abs() > seq_sep
     if not nonbond.any():
-        return float('inf')
+        return float("inf")
     return float(d[nonbond].min().item())
 
 
 # ---------------------------------------------------------------------------
 # Decoy generation  (IC-space perturbation via NeRF + steric filtering)
 # ---------------------------------------------------------------------------
+
 
 def _generate_decoys(
     R: torch.Tensor,
@@ -229,9 +229,9 @@ def _generate_decoys(
                 for attempt in range(max_retries):
                     n_total += 1
 
-                    theta_pert = (
-                        theta_b + THETA_PHI_RATIO * current_sigma * torch.randn_like(theta_b)
-                    ).clamp(0.3, math.pi - 0.3)
+                    theta_pert = (theta_b + THETA_PHI_RATIO * current_sigma * torch.randn_like(theta_b)).clamp(
+                        0.3, math.pi - 0.3
+                    )
 
                     phi_pert = phi_b + current_sigma * torch.randn_like(phi_b)
                     phi_pert = (phi_pert + math.pi) % (2 * math.pi) - math.pi
@@ -261,9 +261,10 @@ def _generate_decoys(
 
     if n_rejected > 0:
         logger.debug(
-            "Decoy steric filter: %d/%d rejected (min_dist < %.1fÅ), "
-            "%d sigma halvings, %.1f%% rejection rate",
-            n_rejected, n_total, min_dist_threshold,
+            "Decoy steric filter: %d/%d rejected (min_dist < %.1fÅ), " "%d sigma halvings, %.1f%% rejection rate",
+            n_rejected,
+            n_total,
+            min_dist_threshold,
             n_sigma_halved,
             100.0 * n_rejected / max(n_total, 1),
         )
@@ -274,6 +275,7 @@ def _generate_decoys(
 # ---------------------------------------------------------------------------
 # 1 + 2.  Q-funnel loss  &  Z-score loss  (shared decoys)
 # ---------------------------------------------------------------------------
+
 
 def elt_funnel_loss(
     model: torch.nn.Module,
@@ -344,13 +346,19 @@ def elt_funnel_loss(
         # -- 1. Pre-compute native contacts (padding-safe) ------
         with torch.no_grad():
             d_native, contact_mask, N_contacts = _precompute_native_contacts(
-                R, lengths, contact_cutoff=contact_cutoff,
+                R,
+                lengths,
+                contact_cutoff=contact_cutoff,
             )
 
         # -- 2. Generate decoys (no grad for coordinates) --------
         with torch.no_grad():
             R_decoys, sigmas = _generate_decoys(
-                R, lengths, n_decoys, sigma_min, sigma_max,
+                R,
+                lengths,
+                n_decoys,
+                sigma_min,
+                sigma_max,
             )
 
         # -- 3. Compute Q for decoys and native (no grad) -------
@@ -361,11 +369,17 @@ def elt_funnel_loss(
             N_contacts_exp = N_contacts.repeat(K)
 
             Q_decoys = _compute_Q(
-                R_decoys, d_native_exp, contact_mask_exp, N_contacts_exp,
+                R_decoys,
+                d_native_exp,
+                contact_mask_exp,
+                N_contacts_exp,
             )
 
             Q_native = _compute_Q(
-                R, d_native, contact_mask, N_contacts,
+                R,
+                d_native,
+                contact_mask,
+                N_contacts,
             )
 
         # -- 4. Evaluate energies (WITH grad through model) ------
@@ -374,27 +388,26 @@ def elt_funnel_loss(
         E_native = model(R.detach(), seq, lengths=lengths)
         E_decoys = model(R_decoys, seq_exp, lengths=lengths_exp)
 
-        if (not torch.isfinite(E_native).all()
-                or not torch.isfinite(E_decoys).all()):
+        if not torch.isfinite(E_native).all() or not torch.isfinite(E_decoys).all():
             return z, z, z, {}
 
         E_native_pr = E_native
         E_decoys_pr = E_decoys
 
-        E_dk = E_decoys_pr.view(K, B).T                            # (B, K)
-        Q_dk = Q_decoys.view(K, B).T                               # (B, K)
+        E_dk = E_decoys_pr.view(K, B).T  # (B, K)
+        Q_dk = Q_decoys.view(K, B).T  # (B, K)
 
-        Q_all = torch.cat([Q_dk, Q_native.unsqueeze(1)], dim=1)   # (B, K+1)
-        E_all = torch.cat([E_dk, E_native_pr.unsqueeze(1)], dim=1)# (B, K+1)
+        Q_all = torch.cat([Q_dk, Q_native.unsqueeze(1)], dim=1)  # (B, K+1)
+        E_all = torch.cat([E_dk, E_native_pr.unsqueeze(1)], dim=1)  # (B, K+1)
 
         K1 = K + 1
 
         # === Q-FUNNEL LOSS =====================================
         # dQ[i,j] = Q_j - Q_i;  dE[i,j] = E_j - E_i
-        dQ = Q_all.unsqueeze(2) - Q_all.unsqueeze(1)              # (B, K1, K1)
-        dE = E_all.unsqueeze(2) - E_all.unsqueeze(1)              # (B, K1, K1)
+        dQ = Q_all.unsqueeze(2) - Q_all.unsqueeze(1)  # (B, K1, K1)
+        dE = E_all.unsqueeze(2) - E_all.unsqueeze(1)  # (B, K1, K1)
 
-        valid = dQ > min_dQ                                        # (B, K1, K1)
+        valid = dQ > min_dQ  # (B, K1, K1)
 
         # Saturating exponential margin: m * (1 - exp(-α * ΔQ))
         required_gap_funnel = _saturating_margin(dQ, funnel_m, funnel_alpha)
@@ -415,7 +428,7 @@ def elt_funnel_loss(
         # Saturating margin scaled by (1 - Q_decoy):
         # Near-native decoys (Q≈1) → margin≈0
         # Far decoys (Q≈0) → margin≈m
-        delta_Q_gap = 1.0 - Q_dk                                  # (B, K)
+        delta_Q_gap = 1.0 - Q_dk  # (B, K)
         required_gap_gap = _saturating_margin(delta_Q_gap, gap_m, gap_alpha)
         gap_exponent = (E_native_pr.unsqueeze(1) - E_dk + required_gap_gap).clamp(max=5.0)
         loss_gap = torch.exp(gap_exponent).mean()
@@ -472,6 +485,7 @@ def elt_funnel_loss(
 # ---------------------------------------------------------------------------
 # 3.  Frustration loss  (sequence permutations)
 # ---------------------------------------------------------------------------
+
 
 def elt_frustration_loss(
     model: torch.nn.Module,
@@ -556,6 +570,7 @@ def elt_frustration_loss(
 # ---------------------------------------------------------------------------
 # Standalone versions called by self_consistent.py with pre-collected
 # negatives that already have Q and Rg computed.
+
 
 def q_funnel_loss(
     E_all: torch.Tensor,
@@ -688,8 +703,8 @@ def drmsd_funnel_loss(
         n_anti:  Anti-funnel violations (i less native but E_i <= E_j).
     """
     dd = drmsd_all.unsqueeze(0) - drmsd_all.unsqueeze(1)  # dd[i,j] = dRMSD_i - dRMSD_j
-    dE = E_all.unsqueeze(0) - E_all.unsqueeze(1)           # dE[i,j] = E_i - E_j
-    valid = dd > threshold                                  # i has higher dRMSD (less native)
+    dE = E_all.unsqueeze(0) - E_all.unsqueeze(1)  # dE[i,j] = E_i - E_j
+    valid = dd > threshold  # i has higher dRMSD (less native)
 
     n_pairs = int(valid.sum().item())
     if n_pairs == 0:

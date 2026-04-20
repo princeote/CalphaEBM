@@ -157,8 +157,6 @@ def load_trajectory_pt(path: Union[str, Path]) -> torch.Tensor:
     return torch.load(path, weights_only=False)
 
 
-def load_trajectory_mdtraj(
-    dcd_path: Union[str, Path], pdb_path: Union[str, Path]
-) -> md.Trajectory:
+def load_trajectory_mdtraj(dcd_path: Union[str, Path], pdb_path: Union[str, Path]) -> md.Trajectory:
     """Load trajectory from DCD+PDB using MDTraj."""
     return md.load_dcd(str(dcd_path), top=str(pdb_path))

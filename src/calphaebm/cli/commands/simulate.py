@@ -22,22 +22,12 @@ from typing import Dict, Tuple
 import torch
 import torch.serialization
 
-from calphaebm.data.pdb_parse import (
-    download_cif,
-    get_residue_sequence,
-    parse_cif_ca_chains,
-)
+from calphaebm.data.pdb_parse import download_cif, get_residue_sequence, parse_cif_ca_chains
 from calphaebm.models.energy import create_total_energy
 from calphaebm.simulation.backends.langevin import ICLangevinSimulator
 from calphaebm.simulation.io import TrajectorySaver
 from calphaebm.training.core.state import ValidationMetrics
-from calphaebm.utils.constants import (
-    BETA,
-    EMB_DIM,
-    FORCE_CAP,
-    N_STEPS,
-    STEP_SIZE,
-)
+from calphaebm.utils.constants import BETA, EMB_DIM, FORCE_CAP, N_STEPS, STEP_SIZE
 from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
@@ -229,7 +219,6 @@ def _get_gates(model) -> Dict[str, float]:
     }
 
 
-
 def _compute_pairwise_diags(
     R: torch.Tensor,
     exclude: int,
@@ -406,13 +395,27 @@ class ProgressObserver:
 
             logger.info("┌─────────────────────────────────────────────────────┐")
             logger.info("│ Gated contributions  @ step %-6d                  │", step)
-            logger.info("│  Gates:  local=%.3f  rep=%.3f  ss=%.3f  pack=%.3f │",
-                        gates["local"], gates["repulsion"], gates["secondary"], gates["packing"])
-            logger.info("│  Raw:    local=%+.3f  rep=%+.3f  ss=%+.3f  pack=%+.3f │",
-                        raw["local"], raw["repulsion"], raw["secondary"], raw["packing"])
+            logger.info(
+                "│  Gates:  local=%.3f  rep=%.3f  ss=%.3f  pack=%.3f │",
+                gates["local"],
+                gates["repulsion"],
+                gates["secondary"],
+                gates["packing"],
+            )
+            logger.info(
+                "│  Raw:    local=%+.3f  rep=%+.3f  ss=%+.3f  pack=%+.3f │",
+                raw["local"],
+                raw["repulsion"],
+                raw["secondary"],
+                raw["packing"],
+            )
             logger.info("│  local     %+8.3f  (%5.1f%%)                       │", contrib["local"], pct["local"])
-            logger.info("│  repulsion %+8.3f  (%5.1f%%)                       │", contrib["repulsion"], pct["repulsion"])
-            logger.info("│  secondary %+8.3f  (%5.1f%%)                       │", contrib["secondary"], pct["secondary"])
+            logger.info(
+                "│  repulsion %+8.3f  (%5.1f%%)                       │", contrib["repulsion"], pct["repulsion"]
+            )
+            logger.info(
+                "│  secondary %+8.3f  (%5.1f%%)                       │", contrib["secondary"], pct["secondary"]
+            )
             logger.info("│  packing   %+8.3f  (%5.1f%%)                       │", contrib["packing"], pct["packing"])
             logger.info("│  TOTAL     %+8.3f                                   │", total)
             logger.info("└─────────────────────────────────────────────────────┘")
@@ -427,9 +430,7 @@ class ProgressObserver:
         self._step = int(step)
 
         # Milestone: verbose gated breakdown (step 0 and every milestone_every)
-        is_milestone = (self._step == 0) or (
-            self.milestone_every > 0 and self._step % self.milestone_every == 0
-        )
+        is_milestone = (self._step == 0) or (self.milestone_every > 0 and self._step % self.milestone_every == 0)
         if is_milestone:
             self._gated_milestone(self._step, R, seq)
 
@@ -586,12 +587,13 @@ def run(args):
 
     logger.info("━" * 60)
     logger.info("Simulation  %s  →  %s", args.pdb.upper(), args.out_dir)
-    logger.info("  steps=%d  step_size=%.2e  beta=%.1f  force_cap=%.1f",
-                args.steps, args.step_size, args.beta, args.force_cap)
-    logger.info("  bond_ideal=%.2fÅ  exclude=%d",
-                args.bond_ideal, args.repulsion_exclude)
-    logger.info("  log_every=%d  milestone_every=%d  save_every=%d",
-                args.log_every, args.milestone_every, args.save_every)
+    logger.info(
+        "  steps=%d  step_size=%.2e  beta=%.1f  force_cap=%.1f", args.steps, args.step_size, args.beta, args.force_cap
+    )
+    logger.info("  bond_ideal=%.2fÅ  exclude=%d", args.bond_ideal, args.repulsion_exclude)
+    logger.info(
+        "  log_every=%d  milestone_every=%d  save_every=%d", args.log_every, args.milestone_every, args.save_every
+    )
     logger.info("━" * 60)
 
     # IC Langevin simulator — bonds are exactly 3.8 Å by NeRF construction at every step

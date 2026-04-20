@@ -64,6 +64,7 @@ def run_traj(args) -> int:
 
     if not getattr(args, "no_plots", False):
         from calphaebm.evaluation.plotting import plot_all
+
         logger.info("Generating plots...")
         plot_all(report, out_dir, burnin_steps=args.burnin)
         logger.info("Saved plots to %s", out_dir)

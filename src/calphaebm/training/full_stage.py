@@ -27,8 +27,8 @@ from __future__ import annotations
 import math
 import os
 import random
-import time
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -36,12 +36,12 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
+from calphaebm.defaults import TRAIN as _T
 from calphaebm.training.core.state import TrainingState
-from calphaebm.training.losses.balance_loss import energy_balance_loss
 from calphaebm.training.logging.diagnostics import DiagnosticLogger
 from calphaebm.training.logging.validation_logging import ValidationLogger
+from calphaebm.training.losses.balance_loss import energy_balance_loss
 from calphaebm.utils.logging import get_logger
-from calphaebm.defaults import TRAIN as _T
 
 logger = get_logger()
 
@@ -52,6 +52,7 @@ THETA_PHI_RATIO = 0.161  # theta noise = 0.161 * phi noise (narrower distributio
 # =====================================================================
 #  Round metrics
 # =====================================================================
+
 
 @dataclass
 class RoundMetrics:
@@ -95,7 +96,7 @@ def _extract_ic(R: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     R_b = R.unsqueeze(0)  # (1, L, 3)
     theta = bond_angles(R_b).squeeze(0)  # (L-2,)
-    phi = torsions(R_b).squeeze(0)       # (L-3,)
+    phi = torsions(R_b).squeeze(0)  # (L-3,)
     return theta, phi
 
 
@@ -113,13 +114,13 @@ def _nerf_reconstruct(R_init, theta, phi, bond_length=BOND_LENGTH):
     """
     batched = theta.dim() == 2
     if not batched:
-        anchor = R_init.unsqueeze(0)         # (1, 3, 3)
-        theta_b = theta.unsqueeze(0)         # (1, L-2)
-        phi_b = phi.unsqueeze(0)             # (1, L-3)
+        anchor = R_init.unsqueeze(0)  # (1, 3, 3)
+        theta_b = theta.unsqueeze(0)  # (1, L-2)
+        phi_b = phi.unsqueeze(0)  # (1, L-3)
         R = _nerf_reconstruct_batched(theta_b, phi_b, anchor, bond=bond_length)
-        return R.squeeze(0)                  # (L, 3)
+        return R.squeeze(0)  # (L, 3)
     else:
-        anchor = R_init                      # already (N, 3, 3)
+        anchor = R_init  # already (N, 3, 3)
         return _nerf_reconstruct_batched(theta, phi, anchor, bond=bond_length)
 
 
@@ -131,6 +132,7 @@ def _wrap_to_pi(x):
 # =====================================================================
 #  Decoy generation: parallel across CPUs
 # =====================================================================
+
 
 def _generate_one_decoy(args):
     """Worker: generate ONE IC-noised decoy on one CPU core.
@@ -152,13 +154,14 @@ def _generate_one_decoy(args):
     rg_new = float(torch.sqrt(((R_new - com_new) ** 2).sum(-1).mean()).item())
 
     return {
-        "R": R_new.numpy(), "sigma": sigma,
-        "q": q_val, "rg_ratio": rg_new / rg_nat,
+        "R": R_new.numpy(),
+        "sigma": sigma,
+        "q": q_val,
+        "rg_ratio": rg_new / rg_nat,
     }
 
 
-def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
-                              sigma_min, sigma_max, device):
+def _pre_generate_round_data(train_loader, n_proteins, n_decoys, sigma_min, sigma_max, device):
     """Pre-generate decoys for n_proteins at round start.
 
     Phase A of each round:
@@ -183,11 +186,13 @@ def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
             Lb = int(lengths[b].item())
             if Lb < 4:
                 continue
-            proteins.append({
-                "R_native": R[b, :Lb].detach().cpu(),
-                "seq": seq_batch[b, :Lb].detach().cpu(),
-                "Lb": Lb,
-            })
+            proteins.append(
+                {
+                    "R_native": R[b, :Lb].detach().cpu(),
+                    "seq": seq_batch[b, :Lb].detach().cpu(),
+                    "Lb": Lb,
+                }
+            )
             if len(proteins) >= n_proteins:
                 break
         if len(proteins) >= n_proteins:
@@ -220,18 +225,28 @@ def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
         theta, phi = _extract_ic(prot["R_native"])
         for di in range(n_decoys):
             sigma = math.exp(random.uniform(math.log(sigma_min), math.log(sigma_max)))
-            tasks.append((
-                prot["R_native"][:3].clone(), theta, phi, sigma,
-                prot["ni"], prot["nj"], prot["d0"], prot["rg_nat"], prot["Lb"],
-            ))
+            tasks.append(
+                (
+                    prot["R_native"][:3].clone(),
+                    theta,
+                    phi,
+                    sigma,
+                    prot["ni"],
+                    prot["nj"],
+                    prot["d0"],
+                    prot["rg_nat"],
+                    prot["Lb"],
+                )
+            )
             task_map.append((pi, di))
 
     # Step 4: Parallel NeRF — n_proteins * n_decoys tasks across 64 CPUs
     # Note: zero_grad(set_to_none=True) is called before _pre_generate_round_data
     # to clear .grad tensors that would cause double-free on fork exit.
     n_workers = min(len(tasks), int(os.environ.get("CALPHAEBM_WORKERS", min(os.cpu_count() or 4, 64))))
-    logger.info("  Generating %d decoys (%d proteins x %d) on %d CPUs...",
-                len(tasks), len(proteins), n_decoys, n_workers)
+    logger.info(
+        "  Generating %d decoys (%d proteins x %d) on %d CPUs...", len(tasks), len(proteins), n_decoys, n_workers
+    )
     sys.stdout.flush()
 
     # Fix: use submit+as_completed instead of pool.map to avoid pipe deadlock.
@@ -242,10 +257,8 @@ def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
     decoy_results = [None] * len(tasks)
     t_submit = time.time()
     with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        futures = {pool.submit(_generate_one_decoy, task): idx
-                   for idx, task in enumerate(tasks)}
-        logger.info("  Decoy-gen: submitted %d tasks in %.1fs",
-                    len(futures), time.time() - t_submit)
+        futures = {pool.submit(_generate_one_decoy, task): idx for idx, task in enumerate(tasks)}
+        logger.info("  Decoy-gen: submitted %d tasks in %.1fs", len(futures), time.time() - t_submit)
         sys.stdout.flush()
 
         completed = 0
@@ -255,8 +268,7 @@ def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
             decoy_results[idx] = fut.result()
             completed += 1
             if completed % log_every == 0 or completed == len(tasks):
-                logger.info("  Decoy-gen: %d/%d completed (%.1fs)",
-                            completed, len(tasks), time.time() - t_submit)
+                logger.info("  Decoy-gen: %d/%d completed (%.1fs)", completed, len(tasks), time.time() - t_submit)
                 sys.stdout.flush()
 
     # Assign decoys back to proteins
@@ -274,24 +286,27 @@ def _pre_generate_round_data(train_loader, n_proteins, n_decoys,
         Lb = prot["Lb"]
         D_nat = torch.cdist(Rb.unsqueeze(0), Rb.unsqueeze(0)).squeeze(0)
         idx = torch.arange(Lb)
-        triu_mask = ((idx.unsqueeze(0) - idx.unsqueeze(1)).abs() >= 4) & \
-                    (idx.unsqueeze(0) > idx.unsqueeze(1))
+        triu_mask = ((idx.unsqueeze(0) - idx.unsqueeze(1)).abs() >= 4) & (idx.unsqueeze(0) > idx.unsqueeze(1))
         d_nat_flat = D_nat[:Lb, :Lb][triu_mask]
         for dec in prot["decoys"]:
             R_new = dec["R"]
             D_new = torch.cdist(R_new.unsqueeze(0), R_new.unsqueeze(0)).squeeze(0)
             d_new_flat = D_new[:Lb, :Lb][triu_mask]
-            dec["drmsd"] = float(
-                torch.sqrt(((d_new_flat - d_nat_flat) ** 2).mean()).item()
-            ) if d_nat_flat.numel() > 0 else 0.0
+            dec["drmsd"] = (
+                float(torch.sqrt(((d_new_flat - d_nat_flat) ** 2).mean()).item()) if d_nat_flat.numel() > 0 else 0.0
+            )
 
     # Filter: only keep proteins with all decoys and valid contacts
-    valid = [p for p in proteins
-             if len(p.get("decoys", [])) == n_decoys and len(p["ni"]) > 0]
+    valid = [p for p in proteins if len(p.get("decoys", [])) == n_decoys and len(p["ni"]) > 0]
 
     elapsed = time.time() - t0
-    logger.info("  Pre-generated %d proteins x %d decoys = %d total (%.1fs)",
-                len(valid), n_decoys, len(valid) * n_decoys, elapsed)
+    logger.info(
+        "  Pre-generated %d proteins x %d decoys = %d total (%.1fs)",
+        len(valid),
+        n_decoys,
+        len(valid) * n_decoys,
+        elapsed,
+    )
     return valid
 
 
@@ -321,8 +336,8 @@ def _collate_protein_batch(proteins, device):
 #  Loss functions
 # =====================================================================
 
-def _discrimination_loss(model, decoy_data, device,
-                         disc_T=2.0, disable_subterms=frozenset()):
+
+def _discrimination_loss(model, decoy_data, device, disc_T=2.0, disable_subterms=frozenset()):
     """Batched per-subterm discrimination using pre-generated decoys.
 
     Pads all (native, decoy) pairs into one (2B, L_max, 3) tensor per
@@ -356,17 +371,17 @@ def _discrimination_loss(model, decoy_data, device,
     lens_all = torch.zeros(2 * B, dtype=torch.long, device=device)
 
     for i, (Lb, R_nat, seq_p, R_dec) in enumerate(pairs):
-        R_all[2*i, :Lb] = R_nat.to(device)
-        R_all[2*i+1, :Lb] = R_dec.to(device)
+        R_all[2 * i, :Lb] = R_nat.to(device)
+        R_all[2 * i + 1, :Lb] = R_dec.to(device)
         if Lb < L_max:
             base_x = FAR + i * 200.0
             offsets_pad = torch.arange(L_max - Lb, device=device).float() * 50.0 + base_x
-            R_all[2*i, Lb:, 0] = offsets_pad
-            R_all[2*i+1, Lb:, 0] = offsets_pad
-        seq_all[2*i, :Lb] = seq_p.to(device)
-        seq_all[2*i+1, :Lb] = seq_p.to(device)
-        lens_all[2*i] = Lb
-        lens_all[2*i+1] = Lb
+            R_all[2 * i, Lb:, 0] = offsets_pad
+            R_all[2 * i + 1, Lb:, 0] = offsets_pad
+        seq_all[2 * i, :Lb] = seq_p.to(device)
+        seq_all[2 * i + 1, :Lb] = seq_p.to(device)
+        lens_all[2 * i] = Lb
+        lens_all[2 * i + 1] = Lb
 
     # ONE forward per subterm
     loss = torch.tensor(0.0, device=device)
@@ -376,9 +391,9 @@ def _discrimination_loss(model, decoy_data, device,
         if term is None or term_name in disable_subterms:
             continue
         E_all = term(R_all, seq_all, lengths=lens_all)  # (2B,)
-        E_nat = E_all[0::2]   # (B,)
-        E_dec = E_all[1::2]   # (B,)
-        gaps = E_dec - E_nat   # (B,) — positive = correct
+        E_nat = E_all[0::2]  # (B,)
+        E_dec = E_all[1::2]  # (B,)
+        gaps = E_dec - E_nat  # (B,) — positive = correct
         loss = loss + torch.exp((-gaps / disc_T).clamp(max=5.0)).mean()
         n_terms += 1
 
@@ -423,7 +438,7 @@ def _dsm_on_decoys(model, decoy_data, device):
             valid_indices = []
             for di, dec in enumerate(decoys):
                 delta = R_nat_dev - dec["R"].to(device)  # (Lb, 3)
-                s2 = float((delta ** 2).sum(-1).mean().item())
+                s2 = float((delta**2).sum(-1).mean().item())
                 if s2 < 1e-8:
                     continue
                 targets.append(delta / s2)  # (Lb, 3)
@@ -436,9 +451,9 @@ def _dsm_on_decoys(model, decoy_data, device):
         D_valid = len(valid_indices)
 
         # Stack valid decoys into (D_valid, Lb, 3) — same Lb, no padding
-        R_dec_batch = torch.stack(
-            [decoys[di]["R"].to(device) for di in valid_indices]
-        ).detach().requires_grad_(True)  # (D_valid, Lb, 3)
+        R_dec_batch = (
+            torch.stack([decoys[di]["R"].to(device) for di in valid_indices]).detach().requires_grad_(True)
+        )  # (D_valid, Lb, 3)
 
         target_batch = torch.stack(targets)  # (D_valid, Lb, 3) detached
         seq_batch = pdata["seq"].to(device).unsqueeze(0).expand(D_valid, -1)  # (D_valid, Lb)
@@ -462,13 +477,23 @@ def _dsm_on_decoys(model, decoy_data, device):
     return torch.tensor(0.0, device=device, requires_grad=True)
 
 
-
-def _funnel_and_gap_losses(model, decoy_data, device,
-                           lambda_qf=1.0, lambda_drmsd=2.0, lambda_gap=1.0,
-                           T_funnel=2.0, gap_margin=0.5,
-                           min_dq=0.05, min_ddrmsd=0.5, slope_clamp=10.0,
-                           funnel_m=5.0, funnel_alpha=5.0,
-                           gap_m=5.0, gap_alpha=5.0):
+def _funnel_and_gap_losses(
+    model,
+    decoy_data,
+    device,
+    lambda_qf=1.0,
+    lambda_drmsd=2.0,
+    lambda_gap=1.0,
+    T_funnel=2.0,
+    gap_margin=0.5,
+    min_dq=0.05,
+    min_ddrmsd=0.5,
+    slope_clamp=10.0,
+    funnel_m=5.0,
+    funnel_alpha=5.0,
+    gap_m=5.0,
+    gap_alpha=5.0,
+):
     """Batched Q-funnel + dRMSD-funnel + Gap losses.
 
     ONE batched model forward for all proteins x (1 native + n_decoys).
@@ -491,7 +516,7 @@ def _funnel_and_gap_losses(model, decoy_data, device,
     lens_all = torch.zeros(total_N, dtype=torch.long, device=device)
 
     q_per_protein = []
-    drmsd_per_protein = []   # full dRMSD per structure (0 for native)
+    drmsd_per_protein = []  # full dRMSD per structure (0 for native)
     offsets = []
 
     idx = 0
@@ -513,7 +538,7 @@ def _funnel_and_gap_losses(model, decoy_data, device,
         lens_all[idx] = Lb
 
         q_vals = [1.0]
-        drmsd_vals = [0.0]   # native has dRMSD = 0 by definition
+        drmsd_vals = [0.0]  # native has dRMSD = 0 by definition
 
         for di, dec in enumerate(decoys):
             R_all[idx + 1 + di, :Lb] = dec["R"].to(device)
@@ -522,7 +547,7 @@ def _funnel_and_gap_losses(model, decoy_data, device,
             seq_all[idx + 1 + di, :Lb] = pdata["seq"].to(device)
             lens_all[idx + 1 + di] = Lb
             q_vals.append(dec["q"])
-            drmsd_vals.append(dec["drmsd"])   # pre-computed in worker, free
+            drmsd_vals.append(dec["drmsd"])  # pre-computed in worker, free
 
         q_per_protein.append(torch.tensor(q_vals, device=device))
         drmsd_per_protein.append(torch.tensor(drmsd_vals, device=device))
@@ -540,12 +565,13 @@ def _funnel_and_gap_losses(model, decoy_data, device,
         n_qf = 0
         for pi, pdata in enumerate(decoy_data):
             N_i = n_per[pi]
-            E_p = E_all[offsets[pi]:offsets[pi] + N_i]
+            E_p = E_all[offsets[pi] : offsets[pi] + N_i]
             Q_p = q_per_protein[pi]
             from calphaebm.training.losses.elt_losses import q_funnel_loss
+
             _qf_loss, _qf_n, _ = q_funnel_loss(
-                E_p, Q_p, m=funnel_m, alpha=funnel_alpha,
-                threshold=min_dq, clamp_max=5.0)
+                E_p, Q_p, m=funnel_m, alpha=funnel_alpha, threshold=min_dq, clamp_max=5.0
+            )
             if _qf_n > 0:
                 total_qf = total_qf + _qf_loss * _qf_n
                 n_qf += _qf_n
@@ -557,12 +583,13 @@ def _funnel_and_gap_losses(model, decoy_data, device,
         n_drmsd = 0
         for pi, pdata in enumerate(decoy_data):
             N_i = n_per[pi]
-            E_p = E_all[offsets[pi]:offsets[pi] + N_i]
+            E_p = E_all[offsets[pi] : offsets[pi] + N_i]
             D_p = drmsd_per_protein[pi]
             from calphaebm.training.losses.elt_losses import drmsd_funnel_loss
+
             _dr_loss, _dr_n, _ = drmsd_funnel_loss(
-                E_p, D_p, m=funnel_m, alpha=funnel_alpha,
-                threshold=min_ddrmsd, clamp_max=5.0)
+                E_p, D_p, m=funnel_m, alpha=funnel_alpha, threshold=min_ddrmsd, clamp_max=5.0
+            )
             if _dr_n > 0:
                 total_drmsd = total_drmsd + _dr_loss * _dr_n
                 n_drmsd += _dr_n
@@ -574,10 +601,11 @@ def _funnel_and_gap_losses(model, decoy_data, device,
         n_gap = 0
         for pi, pdata in enumerate(decoy_data):
             N_i = n_per[pi]
-            E_p = E_all[offsets[pi]:offsets[pi] + N_i]
+            E_p = E_all[offsets[pi] : offsets[pi] + N_i]
             Q_decoys = q_per_protein[pi][1:]
             delta_Q = (1.0 - Q_decoys).clamp(min=0.0)
             from calphaebm.training.losses.elt_losses import _saturating_margin
+
             required_gap = _saturating_margin(delta_Q, gap_m, gap_alpha)
             gaps = E_p[1:] - E_p[0] - required_gap
             pair_loss = torch.exp((-gaps).clamp(max=5.0))
@@ -592,10 +620,20 @@ def _funnel_and_gap_losses(model, decoy_data, device,
 #  Basin evaluation (quick Langevin probe)
 # =====================================================================
 
-def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
-                    beta=100.0, step_size=0.005, force_cap=50.0,
-                    n_workers=64, max_len=128, round_num=0,
-                    sampler="langevin"):
+
+def _run_basin_eval(
+    model,
+    val_loader,
+    n_proteins=64,
+    n_steps=5000,
+    beta=100.0,
+    step_size=0.005,
+    force_cap=50.0,
+    n_workers=64,
+    max_len=128,
+    round_num=0,
+    sampler="langevin",
+):
     """Run quick basin eval on val set via subprocess.
 
     Same approach as SC training: save model + structures to temp files,
@@ -604,10 +642,10 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
     """
     import copy
     import gc
+    import os
     import subprocess
     import sys
     import tempfile
-    import os
 
     model.eval()
     model.zero_grad(set_to_none=True)
@@ -631,13 +669,15 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
             Lb = int(lengths[b].item())
             if Lb < 10 or Lb > max_len:
                 continue
-            structures.append((
-                R[b, :Lb].detach().cpu().clone(),
-                seq[b, :Lb].detach().cpu().clone(),
-                pdb_ids[b] if b < len(pdb_ids) else "unk",
-                chain_ids[b] if b < len(chain_ids) else "A",
-                Lb,
-            ))
+            structures.append(
+                (
+                    R[b, :Lb].detach().cpu().clone(),
+                    seq[b, :Lb].detach().cpu().clone(),
+                    pdb_ids[b] if b < len(pdb_ids) else "unk",
+                    chain_ids[b] if b < len(chain_ids) else "A",
+                    Lb,
+                )
+            )
             if len(structures) >= n_proteins:
                 break
         if len(structures) >= n_proteins:
@@ -648,8 +688,7 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
         return {}
 
     n_structs = len(structures)
-    logger.info("  Eval: %d structures (L≤%d) at beta=%.1f (%d steps)",
-                n_structs, max_len, beta, n_steps)
+    logger.info("  Eval: %d structures (L≤%d) at beta=%.1f (%d steps)", n_structs, max_len, beta, n_steps)
 
     # Save model and structures to temp files
     tmp_dir = tempfile.mkdtemp(prefix="eval_")
@@ -658,19 +697,27 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
     result_path = os.path.join(tmp_dir, "results.pt")
 
     torch.save(model_cpu, model_path)
-    torch.save({"structures": [(R, seq, pid, cid, L)
-                 for R, seq, pid, cid, L in structures]}, struct_path)
+    torch.save({"structures": [(R, seq, pid, cid, L) for R, seq, pid, cid, L in structures]}, struct_path)
 
     try:
         cmd = [
-            sys.executable, "-m", "calphaebm.training.eval_subprocess",
-            "--model-path", model_path,
-            "--structures-path", struct_path,
-            "--results-path", result_path,
-            "--n-workers", str(min(n_workers, n_structs)),
-            "--beta", str(beta),
-            "--n-steps", str(n_steps),
-            "--sampler", sampler,
+            sys.executable,
+            "-m",
+            "calphaebm.training.eval_subprocess",
+            "--model-path",
+            model_path,
+            "--structures-path",
+            struct_path,
+            "--results-path",
+            result_path,
+            "--n-workers",
+            str(min(n_workers, n_structs)),
+            "--beta",
+            str(beta),
+            "--n-steps",
+            str(n_steps),
+            "--sampler",
+            sampler,
         ]
         logger.info("  Launching subprocess eval (%d workers)...", min(n_workers, n_structs))
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -689,8 +736,9 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
             return {"n_ok": 0, "n_total": n_structs}
         if proc.returncode != 0:
             stderr_out = proc.stderr.read() if proc.stderr else ""
-            logger.error("  Subprocess failed (rc=%d):\n%s", proc.returncode,
-                         stderr_out[-1000:] if stderr_out else "no stderr")
+            logger.error(
+                "  Subprocess failed (rc=%d):\n%s", proc.returncode, stderr_out[-1000:] if stderr_out else "no stderr"
+            )
             return {"n_ok": 0, "n_total": n_structs}
 
         results = torch.load(result_path, map_location="cpu", weights_only=False)
@@ -699,6 +747,7 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
         return {"n_ok": 0, "n_total": n_structs}
     finally:
         import shutil
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     ok = [r for r in results if r.get("error") is None]
@@ -713,8 +762,10 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
     dphi_corr = 0.0
     try:
         from calphaebm.training.validation.metrics import (
-            compute_ramachandran_correlation, compute_delta_phi_correlation,
+            compute_delta_phi_correlation,
+            compute_ramachandran_correlation,
         )
+
         all_theta = [r["theta"] for r in ok if r.get("theta") is not None]
         all_phi = [r["phi"] for r in ok if r.get("phi") is not None]
         if all_theta and all_phi and len(all_theta) == len(all_phi):
@@ -727,18 +778,20 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
             theta_cat = torch.tensor(np.concatenate(paired_theta))
             phi_cat = torch.tensor(np.concatenate(paired_phi))
             rama_corr = compute_ramachandran_correlation(theta_cat, phi_cat)
-            dphi_corr = compute_delta_phi_correlation(
-                torch.tensor(np.concatenate(all_phi))
-            )
+            dphi_corr = compute_delta_phi_correlation(torch.tensor(np.concatenate(all_phi)))
     except Exception as e:
         logger.debug("Rama/dphi correlation error: %s", e)
 
     # ── Structured eval logging via ValidationLogger ──────────────
     vlog = ValidationLogger()
     summary = vlog.log_eval_block(
-        round_num=round_num, beta=beta, n_steps=n_steps,
-        results=results, structures=structures,
-        rama_corr=rama_corr, dphi_corr=dphi_corr,
+        round_num=round_num,
+        beta=beta,
+        n_steps=n_steps,
+        results=results,
+        structures=structures,
+        rama_corr=rama_corr,
+        dphi_corr=dphi_corr,
     )
     # Add n_ok/n_total for backward compat with caller
     summary["n_ok"] = len(ok)
@@ -755,15 +808,41 @@ def _run_basin_eval(model, val_loader, n_proteins=64, n_steps=5000,
 #  Single training round (pre-generate + train)
 # =====================================================================
 
-def _train_round(trainer, train_loader, n_steps, lr, lr_final,
-                 lambda_depth, target_depth, lambda_balance, lambda_dsm,
-                 dsm_sigma_min, dsm_sigma_max,
-                 lambda_discrim, disc_T, lambda_qf, lambda_drmsd, lambda_gap,
-                 gap_margin, sigma_min, sigma_max, n_decoys, T_funnel,
-                 decoy_every, discrim_every, disable_subterms, log_every,
-                 collect_proteins=1024,
-                 funnel_m=5.0, funnel_alpha=5.0, gap_m=5.0, gap_alpha=5.0,
-                 round_num=1, max_rounds=10):
+
+def _train_round(
+    trainer,
+    train_loader,
+    n_steps,
+    lr,
+    lr_final,
+    lambda_depth,
+    target_depth,
+    lambda_balance,
+    lambda_dsm,
+    dsm_sigma_min,
+    dsm_sigma_max,
+    lambda_discrim,
+    disc_T,
+    lambda_qf,
+    lambda_drmsd,
+    lambda_gap,
+    gap_margin,
+    sigma_min,
+    sigma_max,
+    n_decoys,
+    T_funnel,
+    decoy_every,
+    discrim_every,
+    disable_subterms,
+    log_every,
+    collect_proteins=1024,
+    funnel_m=5.0,
+    funnel_alpha=5.0,
+    gap_m=5.0,
+    gap_alpha=5.0,
+    round_num=1,
+    max_rounds=10,
+):
     """Run one training round in two phases:
 
     Phase A: Pre-generate decoys for collect_proteins (parallel, ~30s)
@@ -781,8 +860,12 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
     # trigger "double free or corruption" when their GC frees the same grads.
     trainer.model.zero_grad(set_to_none=True)
     stored_proteins = _pre_generate_round_data(
-        train_loader, n_proteins=collect_proteins, n_decoys=n_decoys,
-        sigma_min=sigma_min, sigma_max=sigma_max, device=device,
+        train_loader,
+        n_proteins=collect_proteins,
+        n_decoys=n_decoys,
+        sigma_min=sigma_min,
+        sigma_max=sigma_max,
+        device=device,
     )
     if not stored_proteins:
         logger.warning("No proteins collected — skipping round")
@@ -798,12 +881,13 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
         peak_lr = lr_final + (lr - lr_final) * (max_rounds - round_num) / (max_rounds - 1)
     else:
         peak_lr = lr
-    logger.info("  LR schedule: peak=%.2e → floor=%.2e (round %d/%d)",
-                peak_lr, lr_final, round_num, max_rounds)
+    logger.info("  LR schedule: peak=%.2e → floor=%.2e (round %d/%d)", peak_lr, lr_final, round_num, max_rounds)
 
     optimizer = torch.optim.Adam(params, lr=peak_lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=n_steps, eta_min=lr_final,
+        optimizer,
+        T_max=n_steps,
+        eta_min=lr_final,
     )
 
     trainer.model.train()
@@ -811,6 +895,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
 
     ema = {}
     ema_beta = 0.95
+
     def _eu(key, val):
         if val is None:
             return
@@ -857,7 +942,9 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
                 else:
                     bal_w = lambda_balance
                 loss_bal, _, _ = energy_balance_loss(
-                    trainer.model, R, seq,
+                    trainer.model,
+                    R,
+                    seq,
                     r=float(_T["balance_r"]),
                     r_term=float(_T["balance_r_term"]),
                     lengths=lengths,
@@ -870,21 +957,25 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
             # -- Build decoy_data for this batch (all decoy-based losses use this) --
             decoy_batch = []
             for prot in batch_proteins:
-                decoy_batch.append({
-                    "R_native": prot["R_native"],
-                    "seq": prot["seq"],
-                    "Lb": prot["Lb"],
-                    "rg_nat": prot["rg_nat"],
-                    "ni": prot["ni"],
-                    "nj": prot["nj"],
-                    "d0": prot["d0"],
-                    "decoys": prot["decoys"],
-                })
+                decoy_batch.append(
+                    {
+                        "R_native": prot["R_native"],
+                        "seq": prot["seq"],
+                        "Lb": prot["Lb"],
+                        "rg_nat": prot["rg_nat"],
+                        "ni": prot["ni"],
+                        "nj": prot["nj"],
+                        "d0": prot["d0"],
+                        "decoys": prot["decoys"],
+                    }
+                )
 
             # -- DSM on pre-generated decoys (no NeRF) --
             if lambda_dsm > 0 and decoy_batch:
                 loss_dsm = _dsm_on_decoys(
-                    trainer.model, decoy_batch, device,
+                    trainer.model,
+                    decoy_batch,
+                    device,
                 )
                 if loss_dsm is not None and torch.isfinite(loss_dsm):
                     total_loss = total_loss + lambda_dsm * loss_dsm
@@ -893,8 +984,11 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
             # -- Discrimination on pre-generated decoys (no NeRF) --
             if lambda_discrim > 0 and step % discrim_every == 0 and decoy_batch:
                 loss_disc = _discrimination_loss(
-                    trainer.model, decoy_batch, device,
-                    disc_T=disc_T, disable_subterms=disable_subterms,
+                    trainer.model,
+                    decoy_batch,
+                    device,
+                    disc_T=disc_T,
+                    disable_subterms=disable_subterms,
                 )
                 if torch.isfinite(loss_disc):
                     total_loss = total_loss + lambda_discrim * loss_disc
@@ -903,11 +997,18 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
             # -- Funnel + Gap losses (ONE batched forward for all) --
             if decoy_batch and (lambda_qf > 0 or lambda_drmsd > 0 or lambda_gap > 0):
                 fg = _funnel_and_gap_losses(
-                    trainer.model, decoy_batch, device,
-                    lambda_qf=lambda_qf, lambda_drmsd=lambda_drmsd, lambda_gap=lambda_gap,
-                    T_funnel=T_funnel, gap_margin=gap_margin,
-                    funnel_m=funnel_m, funnel_alpha=funnel_alpha,
-                    gap_m=gap_m, gap_alpha=gap_alpha,
+                    trainer.model,
+                    decoy_batch,
+                    device,
+                    lambda_qf=lambda_qf,
+                    lambda_drmsd=lambda_drmsd,
+                    lambda_gap=lambda_gap,
+                    T_funnel=T_funnel,
+                    gap_margin=gap_margin,
+                    funnel_m=funnel_m,
+                    funnel_alpha=funnel_alpha,
+                    gap_m=gap_m,
+                    gap_alpha=gap_alpha,
                 )
                 if "qf" in fg and torch.isfinite(fg["qf"]):
                     total_loss = total_loss + lambda_qf * fg["qf"]
@@ -934,8 +1035,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
                 # Clamp penalty multipliers to non-negative — they can go to
                 # zero (model kills the term) but must never flip sign.
                 with torch.no_grad():
-                    for _pname in ('coord_lambda', 'coord_m',
-                                   'rho_penalty_lambda', 'rho_m'):
+                    for _pname in ("coord_lambda", "coord_m", "rho_penalty_lambda", "rho_m"):
                         _p = getattr(trainer.model.packing, _pname, None)
                         if _p is not None and isinstance(_p, torch.nn.Parameter):
                             _p.clamp_(min=0.0)
@@ -945,6 +1045,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
         except Exception as e:
             logger.error("Error at step %d: %s", step, e)
             import traceback
+
             traceback.print_exc()
             continue
 
@@ -977,8 +1078,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
                         parts.append(f"{k}={eff:.3f}")
             if "e_nat" in ema:
                 parts.append(f"E={ema['e_nat']:.3f}")
-            logger.info("  step %5d/%d | lr=%.2e | %s",
-                        step, n_steps, current_lr, "  ".join(parts))
+            logger.info("  step %5d/%d | lr=%.2e | %s", step, n_steps, current_lr, "  ".join(parts))
 
         # -- Detailed diagnostics every 500 steps --
         if step % 500 == 0:
@@ -987,6 +1087,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
                 with torch.no_grad():
                     # ── Compute disc/funnel from decoys for precomputed ──
                     import random as _diag_random
+
                     _precomputed = {
                         "clip_frac": _clip_count / max(_clip_total, 1),
                         "max_force": _max_grad_norm,
@@ -1072,19 +1173,26 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
                         drmsd_af = 100.0 * _ndra / max(_ndrp, 1)
                         ms = float(torch.cat(_slopes_all).mean().item()) if _slopes_all else 0.0
                         _precomputed["funnel"] = {
-                            "mean_slope": ms, "q_af": q_af, "drmsd_af": drmsd_af,
-                            "n_qf_pairs": _nqp, "n_qf_anti": _nqa,
-                            "n_dr_pairs": _ndrp, "n_dr_anti": _ndra,
+                            "mean_slope": ms,
+                            "q_af": q_af,
+                            "drmsd_af": drmsd_af,
+                            "n_qf_pairs": _nqp,
+                            "n_qf_anti": _nqa,
+                            "n_dr_pairs": _ndrp,
+                            "n_dr_anti": _ndra,
                         }
                         ema["q_af"] = q_af
                         ema["drmsd_af"] = drmsd_af
 
                     # ── Call the beautiful log_step_block ──
                     diag_logger.log_step_block(
-                        phase_step=step, n_steps=n_steps,
+                        phase_step=step,
+                        n_steps=n_steps,
                         loss=trainer.current_loss,
                         lr=scheduler.get_last_lr()[0],
-                        R=R, seq=seq, lengths=lengths,
+                        R=R,
+                        seq=seq,
+                        lengths=lengths,
                         loss_dsm=_v.get("dsm", (None,))[0] if isinstance(_v.get("dsm"), tuple) else _v.get("dsm"),
                         lambda_native_depth=lambda_depth,
                         target_native_depth=target_depth,
@@ -1103,7 +1211,8 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
             # Periodic checkpoint
             trainer.save_checkpoint(
                 f"full-stage/full_step{step:05d}",
-                step, trainer.current_loss,
+                step,
+                trainer.current_loss,
             )
 
     return ema
@@ -1112,6 +1221,7 @@ def _train_round(trainer, train_loader, n_steps, lr, lr_final,
 # =====================================================================
 #  Main entry point: round loop
 # =====================================================================
+
 
 def run_full_stage(trainer, config, train_loader, val_loader=None):
     """Stage 1: PDB-only training with all losses, running in rounds.
@@ -1124,65 +1234,79 @@ def run_full_stage(trainer, config, train_loader, val_loader=None):
     """
 
     # -- Parse config (defaults from calphaebm.defaults.TRAIN) --
-    max_rounds      = int(getattr(config, "max_rounds", _T["max_rounds"]))
+    max_rounds = int(getattr(config, "max_rounds", _T["max_rounds"]))
     steps_per_round = int(getattr(config, "steps_per_round", _T["steps_per_round"]))
-    lr              = float(getattr(config, "lr", _T["lr"]))
-    lr_final        = float(getattr(config, "lr_final", _T["lr_final"]))
-    log_every       = int(getattr(config, "log_every", _T["log_every"]))
+    lr = float(getattr(config, "lr", _T["lr"]))
+    lr_final = float(getattr(config, "lr_final", _T["lr_final"]))
+    log_every = int(getattr(config, "log_every", _T["log_every"]))
 
     # PDB batch losses
-    lambda_depth    = float(getattr(config, "lambda_depth", _T["lambda_depth"]))
-    target_depth    = float(getattr(config, "target_depth", _T["target_depth"]))
-    lambda_balance  = float(getattr(config, "lambda_balance", _T["lambda_balance"]))
-    lambda_dsm      = float(getattr(config, "lambda_dsm", _T["lambda_dsm"]))
+    lambda_depth = float(getattr(config, "lambda_depth", _T["lambda_depth"]))
+    target_depth = float(getattr(config, "target_depth", _T["target_depth"]))
+    lambda_balance = float(getattr(config, "lambda_balance", _T["lambda_balance"]))
+    lambda_dsm = float(getattr(config, "lambda_dsm", _T["lambda_dsm"]))
 
     # IC-noised losses
-    lambda_discrim  = float(getattr(config, "lambda_discrim", _T["lambda_discrim"]))
-    disc_T          = float(getattr(config, "disc_T", _T["disc_T"]))
-    lambda_qf       = float(getattr(config, "lambda_qf", _T["lambda_qf"]))
-    lambda_drmsd    = float(getattr(config, "lambda_drmsd", _T.get("lambda_drmsd", 2.0)))
-    lambda_gap      = float(getattr(config, "lambda_gap", _T["lambda_gap"]))
-    gap_margin      = float(getattr(config, "gap_margin", _T["gap_margin"]))
+    lambda_discrim = float(getattr(config, "lambda_discrim", _T["lambda_discrim"]))
+    disc_T = float(getattr(config, "disc_T", _T["disc_T"]))
+    lambda_qf = float(getattr(config, "lambda_qf", _T["lambda_qf"]))
+    lambda_drmsd = float(getattr(config, "lambda_drmsd", _T.get("lambda_drmsd", 2.0)))
+    lambda_gap = float(getattr(config, "lambda_gap", _T["lambda_gap"]))
+    gap_margin = float(getattr(config, "gap_margin", _T["gap_margin"]))
 
     # Saturating exponential margins (Run5)
-    funnel_m        = float(getattr(config, "funnel_m", _T["funnel_m"]))
-    funnel_alpha    = float(getattr(config, "funnel_alpha", _T["funnel_alpha"]))
-    gap_m           = float(getattr(config, "gap_m", _T["gap_m"]))
-    gap_alpha       = float(getattr(config, "gap_alpha", _T["gap_alpha"]))
+    funnel_m = float(getattr(config, "funnel_m", _T["funnel_m"]))
+    funnel_alpha = float(getattr(config, "funnel_alpha", _T["funnel_alpha"]))
+    gap_m = float(getattr(config, "gap_m", _T["gap_m"]))
+    gap_alpha = float(getattr(config, "gap_alpha", _T["gap_alpha"]))
 
     # IC noise params
-    sigma_min       = float(getattr(config, "sigma_min", _T["sigma_min"]))
-    sigma_max       = float(getattr(config, "sigma_max", _T["sigma_max"]))
-    n_decoys        = int(getattr(config, "n_decoys", _T["n_decoys"]))
-    T_funnel        = float(getattr(config, "T_funnel", _T["T_funnel"]))
+    sigma_min = float(getattr(config, "sigma_min", _T["sigma_min"]))
+    sigma_max = float(getattr(config, "sigma_max", _T["sigma_max"]))
+    n_decoys = int(getattr(config, "n_decoys", _T["n_decoys"]))
+    T_funnel = float(getattr(config, "T_funnel", _T["T_funnel"]))
 
     # DSM sigma
-    dsm_sigma_min   = float(getattr(config, "dsm_sigma_min", sigma_min))
-    dsm_sigma_max   = float(getattr(config, "dsm_sigma_max", sigma_max))
+    dsm_sigma_min = float(getattr(config, "dsm_sigma_min", sigma_min))
+    dsm_sigma_max = float(getattr(config, "dsm_sigma_max", sigma_max))
 
     # Disabled subterms
     disable_subterms = set(getattr(config, "disable_subterms", []) or [])
 
     # Amortise
-    decoy_every      = int(getattr(config, "decoy_every", _T["decoy_every"]))
-    discrim_every    = int(getattr(config, "discrim_every", _T["discrim_every"]))
+    decoy_every = int(getattr(config, "decoy_every", _T["decoy_every"]))
+    discrim_every = int(getattr(config, "discrim_every", _T["discrim_every"]))
 
     # Collection
     collect_proteins = int(getattr(config, "collect_proteins", 1024))
 
     logger.info("=" * 66)
     logger.info("  STAGE 1: FULL PDB-ONLY TRAINING (ROUND-BASED)")
-    logger.info("  %d rounds x %d steps = %d total, lr=%.1e -> %.1e",
-                max_rounds, steps_per_round, max_rounds * steps_per_round,
-                lr, lr_final)
-    logger.info("  PDB:    depth=%.2f  bal=%.3f  dsm=%.2f",
-                lambda_depth, lambda_balance, lambda_dsm)
-    logger.info("  Decoys: disc=%.2f(T=%.1f)  qf=%.2f  drmsd=%.2f  gap=%.2f",
-                lambda_discrim, disc_T, lambda_qf, lambda_drmsd, lambda_gap)
-    logger.info("  Margin: funnel(m=%.1f,α=%.1f)  gap(m=%.1f,α=%.1f)",
-                funnel_m, funnel_alpha, gap_m, gap_alpha)
-    logger.info("  IC noise: sigma ~ LogU(%.3f, %.3f) rad, %d decoys, %d proteins/round",
-                sigma_min, sigma_max, n_decoys, collect_proteins)
+    logger.info(
+        "  %d rounds x %d steps = %d total, lr=%.1e -> %.1e",
+        max_rounds,
+        steps_per_round,
+        max_rounds * steps_per_round,
+        lr,
+        lr_final,
+    )
+    logger.info("  PDB:    depth=%.2f  bal=%.3f  dsm=%.2f", lambda_depth, lambda_balance, lambda_dsm)
+    logger.info(
+        "  Decoys: disc=%.2f(T=%.1f)  qf=%.2f  drmsd=%.2f  gap=%.2f",
+        lambda_discrim,
+        disc_T,
+        lambda_qf,
+        lambda_drmsd,
+        lambda_gap,
+    )
+    logger.info("  Margin: funnel(m=%.1f,α=%.1f)  gap(m=%.1f,α=%.1f)", funnel_m, funnel_alpha, gap_m, gap_alpha)
+    logger.info(
+        "  IC noise: sigma ~ LogU(%.3f, %.3f) rad, %d decoys, %d proteins/round",
+        sigma_min,
+        sigma_max,
+        n_decoys,
+        collect_proteins,
+    )
     logger.info("  Eval:   detached — run eval_watcher.py independently")
     logger.info("=" * 66)
 
@@ -1194,8 +1318,12 @@ def run_full_stage(trainer, config, train_loader, val_loader=None):
         completed_rounds = trainer.global_step // steps_per_round
         start_round = completed_rounds + 1
         if start_round > 1:
-            logger.info("  Resuming from round %d (global_step=%d, %d rounds completed)",
-                        start_round, trainer.global_step, completed_rounds)
+            logger.info(
+                "  Resuming from round %d (global_step=%d, %d rounds completed)",
+                start_round,
+                trainer.global_step,
+                completed_rounds,
+            )
 
     for round_num in range(start_round, max_rounds + 1):
         logger.info("-" * 50)
@@ -1204,28 +1332,45 @@ def run_full_stage(trainer, config, train_loader, val_loader=None):
 
         # -- Train --
         ema = _train_round(
-            trainer=trainer, train_loader=train_loader,
-            n_steps=steps_per_round, lr=lr, lr_final=lr_final,
-            lambda_depth=lambda_depth, target_depth=target_depth,
-            lambda_balance=lambda_balance, lambda_dsm=lambda_dsm,
-            dsm_sigma_min=dsm_sigma_min, dsm_sigma_max=dsm_sigma_max,
-            lambda_discrim=lambda_discrim, disc_T=disc_T,
-            lambda_qf=lambda_qf, lambda_drmsd=lambda_drmsd,
-            lambda_gap=lambda_gap, gap_margin=gap_margin,
-            sigma_min=sigma_min, sigma_max=sigma_max,
-            n_decoys=n_decoys, T_funnel=T_funnel,
-            decoy_every=decoy_every, discrim_every=discrim_every,
-            disable_subterms=disable_subterms, log_every=log_every,
+            trainer=trainer,
+            train_loader=train_loader,
+            n_steps=steps_per_round,
+            lr=lr,
+            lr_final=lr_final,
+            lambda_depth=lambda_depth,
+            target_depth=target_depth,
+            lambda_balance=lambda_balance,
+            lambda_dsm=lambda_dsm,
+            dsm_sigma_min=dsm_sigma_min,
+            dsm_sigma_max=dsm_sigma_max,
+            lambda_discrim=lambda_discrim,
+            disc_T=disc_T,
+            lambda_qf=lambda_qf,
+            lambda_drmsd=lambda_drmsd,
+            lambda_gap=lambda_gap,
+            gap_margin=gap_margin,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            n_decoys=n_decoys,
+            T_funnel=T_funnel,
+            decoy_every=decoy_every,
+            discrim_every=discrim_every,
+            disable_subterms=disable_subterms,
+            log_every=log_every,
             collect_proteins=collect_proteins,
-            funnel_m=funnel_m, funnel_alpha=funnel_alpha,
-            gap_m=gap_m, gap_alpha=gap_alpha,
-            round_num=round_num, max_rounds=max_rounds,
+            funnel_m=funnel_m,
+            funnel_alpha=funnel_alpha,
+            gap_m=gap_m,
+            gap_alpha=gap_alpha,
+            round_num=round_num,
+            max_rounds=max_rounds,
         )
 
         # -- Save round checkpoint (eval_watcher polls for this) --
         trainer.save_checkpoint(
             f"full-stage/full_round{round_num:03d}",
-            trainer.phase_step, trainer.current_loss,
+            trainer.phase_step,
+            trainer.current_loss,
         )
 
         # -- Round training summary (training metrics only) --
@@ -1239,27 +1384,26 @@ def run_full_stage(trainer, config, train_loader, val_loader=None):
         round_history.append(metrics)
 
         logger.info("  Round %d complete:", round_num)
-        logger.info("    loss=%.4f  Q_af=%.1f%%  dRMSD_af=%.1f%%  E=%.3f",
-                    metrics.train_loss,
-                    metrics.q_af, metrics.rg_af,
-                    ema.get("e_nat", 0.0))
-        logger.info("    Checkpoint saved — eval_watcher will pick up full-stage/full_round%03d",
-                    round_num)
+        logger.info(
+            "    loss=%.4f  Q_af=%.1f%%  dRMSD_af=%.1f%%  E=%.3f",
+            metrics.train_loss,
+            metrics.q_af,
+            metrics.rg_af,
+            ema.get("e_nat", 0.0),
+        )
+        logger.info("    Checkpoint saved — eval_watcher will pick up full-stage/full_round%03d", round_num)
 
         # -- Round history table (training losses only) --
         logger.info("  Round history:")
-        logger.info("  %5s  %8s  %6s  %7s  %7s",
-                    "Round", "Loss", "Q_af%", "dR_af%", "E/res")
+        logger.info("  %5s  %8s  %6s  %7s  %7s", "Round", "Loss", "Q_af%", "dR_af%", "E/res")
         for m in round_history:
-            logger.info("  %5d  %8.4f  %6.1f  %7.1f  %7.3f",
-                        m.round_num, m.train_loss,
-                        m.q_af, m.rg_af,
-                        m.ema.get("e_nat", 0.0))
+            logger.info(
+                "  %5d  %8.4f  %6.1f  %7.1f  %7.3f", m.round_num, m.train_loss, m.q_af, m.rg_af, m.ema.get("e_nat", 0.0)
+            )
 
     # -- Final checkpoint --
     trainer.save_checkpoint("full-stage/full_final", trainer.phase_step, trainer.current_loss)
-    logger.info("Stage 1 complete: %d rounds, %d total steps",
-                len(round_history), trainer.global_step)
+    logger.info("Stage 1 complete: %d rounds, %d total steps", len(round_history), trainer.global_step)
 
     return TrainingState(
         global_step=trainer.global_step,

@@ -55,17 +55,17 @@ def rg_contrastive_loss(
     # ── Padding-aware center of mass ──────────────────────────────────────
     with torch.no_grad():
         if lengths is not None:
-            mask = (torch.arange(L, device=device).unsqueeze(0)
-                    < lengths.unsqueeze(1)).float().unsqueeze(2)       # (B, L, 1)
+            mask = (
+                (torch.arange(L, device=device).unsqueeze(0) < lengths.unsqueeze(1)).float().unsqueeze(2)
+            )  # (B, L, 1)
             n_atoms = lengths.float().clamp(min=1.0).unsqueeze(1).unsqueeze(2)  # (B, 1, 1)
-            com = (R * mask).sum(dim=1, keepdim=True) / n_atoms       # (B, 1, 3)
+            com = (R * mask).sum(dim=1, keepdim=True) / n_atoms  # (B, 1, 3)
         else:
             mask = None
-            com = R.mean(dim=1, keepdim=True)                         # (B, 1, 3)
+            com = R.mean(dim=1, keepdim=True)  # (B, 1, 3)
 
         # ── Sample α ~ U(α_min, α_max) per structure ─────────────────────
-        alpha = alpha_min + (alpha_max - alpha_min) * torch.rand(
-            B, 1, 1, device=device)                                   # (B, 1, 1)
+        alpha = alpha_min + (alpha_max - alpha_min) * torch.rand(B, 1, 1, device=device)  # (B, 1, 1)
 
         # ── Scale real atoms; leave padding unchanged ─────────────────────
         R_scaled = com + alpha * (R - com)

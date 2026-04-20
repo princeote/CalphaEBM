@@ -42,6 +42,7 @@ logger = get_logger()
 # Angle computation
 # ---------------------------------------------------------------------------
 
+
 def _compute_angles(R: np.ndarray):
     """Compute bond angles (θ) and torsions (φ) from Cα coords.
 
@@ -73,6 +74,7 @@ def _compute_angles(R: np.ndarray):
 # Basin assignment from energy surfaces
 # ---------------------------------------------------------------------------
 
+
 def _load_basin_surfaces(basin_dir: Path):
     """Load the 4 Ramachandran basin energy surfaces.
 
@@ -101,9 +103,7 @@ def _assign_basins(theta_deg, phi_deg, surfaces, theta_edges, phi_edges):
     theta_idx = np.clip(np.digitize(theta_deg, theta_edges) - 1, 0, n_theta_bins - 1)
     phi_idx = np.clip(np.digitize(phi_deg, phi_edges) - 1, 0, n_phi_bins - 1)
 
-    energies = np.stack([
-        surfaces[b][theta_idx, phi_idx] for b in range(4)
-    ], axis=-1)
+    energies = np.stack([surfaces[b][theta_idx, phi_idx] for b in range(4)], axis=-1)
 
     return np.argmin(energies, axis=-1)
 
@@ -117,8 +117,7 @@ HELIX_BASIN = 1
 SHEET_BASIN = 0
 
 
-def _process_chain(R: np.ndarray, surfaces, theta_edges, phi_edges,
-                   max_sheet_dist: float = 12.0):
+def _process_chain(R: np.ndarray, surfaces, theta_edges, phi_edges, max_sheet_dist: float = 12.0):
     """Process one chain. Returns helix, sheet, coil distance arrays.
 
     Classification by basin assignment from Ramachandran energy surfaces
@@ -144,12 +143,15 @@ def _process_chain(R: np.ndarray, surfaces, theta_edges, phi_edges,
 
     n_valid = min(len(theta_deg) - 1, len(phi_deg))
     basins = _assign_basins(
-        theta_deg[:n_valid], phi_deg[:n_valid],
-        surfaces, theta_edges, phi_edges,
+        theta_deg[:n_valid],
+        phi_deg[:n_valid],
+        surfaces,
+        theta_edges,
+        phi_edges,
     )
 
-    is_helix = (basins == HELIX_BASIN)
-    is_sheet = (basins == SHEET_BASIN)
+    is_helix = basins == HELIX_BASIN
+    is_sheet = basins == SHEET_BASIN
     is_coil = (~is_helix) & (~is_sheet)
 
     # ── Helical i→i+4 distances ──────────────────────────────────────
@@ -187,6 +189,7 @@ def _process_chain(R: np.ndarray, surfaces, theta_edges, phi_edges,
 # CLI registration
 # ---------------------------------------------------------------------------
 
+
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     """Register ``hbonds`` subcommand under ``calphaebm analyze``."""
     p = subparsers.add_parser(
@@ -200,43 +203,61 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--pdb-list", type=str, required=True,
+        "--pdb-list",
+        type=str,
+        required=True,
         help="File containing PDB IDs, one per line (e.g. train_hq.txt)",
     )
     p.add_argument(
-        "--cache-dir", type=str, default="pdb_cache",
+        "--cache-dir",
+        type=str,
+        default="pdb_cache",
         help="Directory for mmCIF files (default: pdb_cache)",
     )
     p.add_argument(
-        "--basin-dir", type=str, default="analysis/secondary_analysis/data",
+        "--basin-dir",
+        type=str,
+        default="analysis/secondary_analysis/data",
         help="Directory with basin_*_energy.npy files (default: analysis/secondary_analysis/data)",
     )
     p.add_argument(
-        "--output-dir", type=str, default="analysis/hbond_analysis",
+        "--output-dir",
+        type=str,
+        default="analysis/hbond_analysis",
         help="Output directory (default: analysis/hbond_analysis)",
     )
     p.add_argument(
-        "--max-sheet-dist", type=float, default=12.0,
+        "--max-sheet-dist",
+        type=float,
+        default=12.0,
         help="Max distance for sheet nonlocal contacts in Angstrom (default: 12.0)",
     )
     p.add_argument(
-        "--min-len", type=int, default=40,
+        "--min-len",
+        type=int,
+        default=40,
         help="Minimum chain length (default: 40)",
     )
     p.add_argument(
-        "--max-len", type=int, default=512,
+        "--max-len",
+        type=int,
+        default=512,
         help="Maximum chain length (default: 512)",
     )
     p.add_argument(
-        "--max-pdbs", type=int, default=None,
+        "--max-pdbs",
+        type=int,
+        default=None,
         help="Maximum number of PDB IDs to process (default: all)",
     )
     p.add_argument(
-        "--no-plots", action="store_true",
+        "--no-plots",
+        action="store_true",
         help="Skip generating plots",
     )
     p.add_argument(
-        "--quiet", action="store_true",
+        "--quiet",
+        action="store_true",
         help="Reduce verbosity",
     )
     p.set_defaults(func=run)
@@ -245,6 +266,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def run(args: argparse.Namespace) -> None:
     """Run H-bond distance analysis."""
@@ -255,10 +277,7 @@ def run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     with open(pdb_list_path) as f:
-        pdb_ids = [
-            line.strip() for line in f
-            if line.strip() and not line.startswith("#")
-        ]
+        pdb_ids = [line.strip() for line in f if line.strip() and not line.startswith("#")]
     if args.max_pdbs is not None:
         pdb_ids = pdb_ids[: args.max_pdbs]
     logger.info("Loaded %d PDB IDs from %s", len(pdb_ids), pdb_list_path)
@@ -274,8 +293,7 @@ def run(args: argparse.Namespace) -> None:
     # Load basin energy surfaces for secondary structure classification
     basin_dir = Path(args.basin_dir)
     surfaces, theta_edges, phi_edges = _load_basin_surfaces(basin_dir)
-    logger.info("Loaded %d basin surfaces (%s bins) from %s",
-                surfaces.shape[0], surfaces.shape[1:], basin_dir)
+    logger.info("Loaded %d basin surfaces (%s bins) from %s", surfaces.shape[0], surfaces.shape[1:], basin_dir)
 
     # Verify basin identity by checking peaks
     for b in range(4):
@@ -296,6 +314,7 @@ def run(args: argparse.Namespace) -> None:
     n_skipped = 0
 
     import requests
+
     session = requests.Session()
 
     for i, pdb_id in enumerate(pdb_ids):
@@ -328,7 +347,10 @@ def run(args: argparse.Namespace) -> None:
 
             R = chain.coords.astype(np.float64)
             h, s, c = _process_chain(
-                R, surfaces, theta_edges, phi_edges,
+                R,
+                surfaces,
+                theta_edges,
+                phi_edges,
                 max_sheet_dist=args.max_sheet_dist,
             )
             all_helix.extend(h)
@@ -339,8 +361,12 @@ def run(args: argparse.Namespace) -> None:
         if not args.quiet and (i + 1) % 500 == 0:
             logger.info(
                 "  Processed %d/%d PDBs (%d chains, %d helix, %d sheet, %d coil)",
-                i + 1, len(pdb_ids), n_chains,
-                len(all_helix), len(all_sheet), len(all_coil),
+                i + 1,
+                len(pdb_ids),
+                n_chains,
+                len(all_helix),
+                len(all_sheet),
+                len(all_coil),
             )
 
     session.close()
@@ -351,16 +377,21 @@ def run(args: argparse.Namespace) -> None:
 
     logger.info(
         "Done: %d PDBs, %d chains, %d skipped",
-        n_structures, n_chains, n_skipped,
+        n_structures,
+        n_chains,
+        n_skipped,
     )
     logger.info(
-        "  Helical i→i+4:     %d distances", len(all_helix),
+        "  Helical i→i+4:     %d distances",
+        len(all_helix),
     )
     logger.info(
-        "  Sheet nonlocal:    %d distances", len(all_sheet),
+        "  Sheet nonlocal:    %d distances",
+        len(all_sheet),
     )
     logger.info(
-        "  Coil i→i+4:        %d distances", len(all_coil),
+        "  Coil i→i+4:        %d distances",
+        len(all_coil),
     )
 
     if n_chains == 0:
@@ -395,8 +426,12 @@ def run(args: argparse.Namespace) -> None:
             }
             logger.info(
                 "  %s: n=%d  mean=%.3fÅ  std=%.3fÅ  [p5=%.2f, p95=%.2f]",
-                name, len(arr), arr.mean(), arr.std(),
-                np.percentile(arr, 5), np.percentile(arr, 95),
+                name,
+                len(arr),
+                arr.mean(),
+                arr.std(),
+                np.percentile(arr, 5),
+                np.percentile(arr, 95),
             )
         else:
             stats[name] = {"n": 0}
@@ -422,10 +457,12 @@ def run(args: argparse.Namespace) -> None:
 # Plotting
 # ---------------------------------------------------------------------------
 
+
 def _plot_distributions(all_helix, all_sheet, all_coil, stats, out_dir):
     """Plot distance distributions with Gaussian fits."""
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from scipy.optimize import curve_fit
@@ -437,21 +474,19 @@ def _plot_distributions(all_helix, all_sheet, all_coil, stats, out_dir):
         return amp * np.exp(-0.5 * ((x - mu) / sig) ** 2)
 
     def gauss2(x, mu1, sig1, amp1, mu2, sig2, amp2):
-        return (amp1 * np.exp(-0.5 * ((x - mu1) / sig1) ** 2) +
-                amp2 * np.exp(-0.5 * ((x - mu2) / sig2) ** 2))
+        return amp1 * np.exp(-0.5 * ((x - mu1) / sig1) ** 2) + amp2 * np.exp(-0.5 * ((x - mu2) / sig2) ** 2)
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle(
-        "H-bond Cα-Cα Distance Distributions\n"
-        "Classification by Ramachandran angle region (not distance)",
-        fontsize=13, fontweight="bold",
+        "H-bond Cα-Cα Distance Distributions\n" "Classification by Ramachandran angle region (not distance)",
+        fontsize=13,
+        fontweight="bold",
     )
 
     # ── Helix i→i+4 ──────────────────────────────────────────────
     if len(all_helix) > 0:
         ax = axes[0]
-        ax.hist(all_helix, bins=100, range=(3, 10), density=True,
-                color="steelblue", alpha=0.7, edgecolor="none")
+        ax.hist(all_helix, bins=100, range=(3, 10), density=True, color="steelblue", alpha=0.7, edgecolor="none")
         mu = float(all_helix.mean())
         sig = float(all_helix.std())
         x = np.linspace(3, 10, 200)
@@ -467,17 +502,20 @@ def _plot_distributions(all_helix, all_sheet, all_coil, stats, out_dir):
     if len(all_sheet) > 100:
         ax = axes[1]
         counts, edges, _ = ax.hist(
-            all_sheet, bins=120, range=(3, 12), density=True,
-            color="coral", alpha=0.7, edgecolor="none",
+            all_sheet,
+            bins=120,
+            range=(3, 12),
+            density=True,
+            color="coral",
+            alpha=0.7,
+            edgecolor="none",
         )
         bin_centers = (edges[:-1] + edges[1:]) / 2
 
         try:
             p0 = [5.0, 0.7, 0.3, 9.0, 1.2, 0.10]
-            bounds = ([3, 0.1, 0.01, 6, 0.3, 0.01],
-                      [7, 2.0, 2.0, 12, 3.0, 2.0])
-            popt, _ = curve_fit(gauss2, bin_centers, counts, p0=p0,
-                                bounds=bounds, maxfev=5000)
+            bounds = ([3, 0.1, 0.01, 6, 0.3, 0.01], [7, 2.0, 2.0, 12, 3.0, 2.0])
+            popt, _ = curve_fit(gauss2, bin_centers, counts, p0=p0, bounds=bounds, maxfev=5000)
             mu1, sig1 = popt[0], popt[1]
             mu2, sig2 = popt[3], popt[4]
             if mu1 > mu2:
@@ -486,10 +524,10 @@ def _plot_distributions(all_helix, all_sheet, all_coil, stats, out_dir):
 
             x = np.linspace(3, 12, 200)
             ax.plot(x, gauss2(x, *popt), "r-", linewidth=2, label="Two-Gauss fit")
-            ax.plot(x, gauss1(x, *popt[:3]), "b--", linewidth=1.5,
-                    label=f"Peak 1 (anti-∥): μ={popt[0]:.2f} σ={popt[1]:.2f}")
-            ax.plot(x, gauss1(x, *popt[3:]), "g--", linewidth=1.5,
-                    label=f"Peak 2 (∥): μ={popt[3]:.2f} σ={popt[4]:.2f}")
+            ax.plot(
+                x, gauss1(x, *popt[:3]), "b--", linewidth=1.5, label=f"Peak 1 (anti-∥): μ={popt[0]:.2f} σ={popt[1]:.2f}"
+            )
+            ax.plot(x, gauss1(x, *popt[3:]), "g--", linewidth=1.5, label=f"Peak 2 (∥): μ={popt[3]:.2f} σ={popt[4]:.2f}")
 
             stats["sheet_peak1"] = {"mu": round(float(mu1), 4), "sigma": round(float(sig1), 4)}
             stats["sheet_peak2"] = {"mu": round(float(mu2), 4), "sigma": round(float(sig2), 4)}
@@ -518,14 +556,22 @@ def _plot_distributions(all_helix, all_sheet, all_coil, stats, out_dir):
     # ── Coil control ──────────────────────────────────────────────
     if len(all_coil) > 0:
         ax = axes[2]
-        ax.hist(all_coil, bins=100, range=(3, 16), density=True,
-                color="gray", alpha=0.7, edgecolor="none", label="Coil")
+        ax.hist(
+            all_coil, bins=100, range=(3, 16), density=True, color="gray", alpha=0.7, edgecolor="none", label="Coil"
+        )
         if len(all_helix) > 0:
-            ax.hist(all_helix, bins=100, range=(3, 16), density=True,
-                    color="steelblue", alpha=0.4, edgecolor="none", label="Helix")
+            ax.hist(
+                all_helix,
+                bins=100,
+                range=(3, 16),
+                density=True,
+                color="steelblue",
+                alpha=0.4,
+                edgecolor="none",
+                label="Helix",
+            )
         mu_c = float(all_coil.mean())
-        ax.axvline(mu_c, color="black", linestyle="--", alpha=0.5,
-                   label=f"Coil μ={mu_c:.2f}Å")
+        ax.axvline(mu_c, color="black", linestyle="--", alpha=0.5, label=f"Coil μ={mu_c:.2f}Å")
         ax.set_xlabel("d(Cα_i, Cα_{i+4}) [Å]")
         ax.set_ylabel("Density")
         ax.set_title(f"Coil i→i+4 control (n={len(all_coil):,})")

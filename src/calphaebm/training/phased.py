@@ -90,10 +90,7 @@ class PhasedTrainer(BaseTrainer):
         # Detect whether packing ramp is configured for this phase.
         pack_ramp_start, pack_ramp_end, ramp_steps = _get_packing_ramp_from_config(config)
         packing_ramp_configured = (
-            config.name == "packing"
-            and pack_ramp_start is not None
-            and pack_ramp_end is not None
-            and ramp_steps > 0
+            config.name == "packing" and pack_ramp_start is not None and pack_ramp_end is not None and ramp_steps > 0
         )
 
         # Configure gates:

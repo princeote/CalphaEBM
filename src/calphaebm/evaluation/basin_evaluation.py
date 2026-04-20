@@ -18,29 +18,21 @@ CLI entry point:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-import math
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from calphaebm.evaluation.metrics.rmsd import rmsd_kabsch, drmsd
+from calphaebm.evaluation.core_evaluation import load_model, load_structures, structures_to_loader
 from calphaebm.evaluation.metrics.contacts import native_contact_set, q_smooth
 from calphaebm.evaluation.metrics.rg import radius_of_gyration
+from calphaebm.evaluation.metrics.rmsd import drmsd, rmsd_kabsch
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 from calphaebm.simulation.backends.langevin import ICLangevinSimulator
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
 from calphaebm.utils.logging import get_logger
-from calphaebm.evaluation.core_evaluation import (
-    load_model,
-    load_structures,
-    structures_to_loader,
-)
 
 logger = get_logger()
 
@@ -48,29 +40,30 @@ logger = get_logger()
 @dataclass
 class StructureResult:
     """Per-structure Langevin result with trajectory time series."""
+
     pdb_id: str
     chain_id: str
     length: int
-    E_init: float       # energy at PDB coordinates
+    E_init: float  # energy at PDB coordinates
     E_minimized: float  # energy after minimization (= E_init if no minimization)
-    E_final: float      # energy after Langevin
-    E_delta: float      # E_final - E_minimized
-    rmsd_min: float     # RMSD from PDB to minimized structure
-    rmsd: float         # RMSD from minimized to final (Langevin drift)
+    E_final: float  # energy after Langevin
+    E_delta: float  # E_final - E_minimized
+    rmsd_min: float  # RMSD from PDB to minimized structure
+    rmsd: float  # RMSD from minimized to final (Langevin drift)
     drmsd: float
     q: float
     rmsf: float = 0.0  # per-residue RMSF (mean over residues, Welford online)
-    min_converged: bool = False   # did minimization converge?
-    min_steps_used: int = 0       # steps actually used
+    min_converged: bool = False  # did minimization converge?
+    min_steps_used: int = 0  # steps actually used
 
     # Perturbation recovery tracking
-    rmsd_start: float = 0.0       # RMSD of starting point from native (0 if no perturbation)
-    q_start: float = 1.0          # Q at starting point (1.0 if native start)
-    rmsd_to_native: float = 0.0   # final RMSD to native (for perturbed: did it recover?)
-    q_to_native: float = 1.0      # final Q to native
-    recovered: bool = False       # did RMSD to native decrease over the run?
+    rmsd_start: float = 0.0  # RMSD of starting point from native (0 if no perturbation)
+    q_start: float = 1.0  # Q at starting point (1.0 if native start)
+    rmsd_to_native: float = 0.0  # final RMSD to native (for perturbed: did it recover?)
+    q_to_native: float = 1.0  # final Q to native
+    recovered: bool = False  # did RMSD to native decrease over the run?
     langevin_converged: bool = False  # did Langevin equilibrate early?
-    langevin_steps_used: int = 0      # actual steps run (< n_steps if converged)
+    langevin_steps_used: int = 0  # actual steps run (< n_steps if converged)
 
     # Trajectory time series (sampled every save_every steps)
     traj_steps: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -101,6 +94,7 @@ class StructureResult:
 @dataclass
 class BetaResult:
     """Aggregated results for a single beta value."""
+
     beta: float
     n_structures: int
     per_structure: List[StructureResult]
@@ -223,9 +217,9 @@ class BasinStabilityEvaluator:
         if ss_mod is not None:
             if hasattr(ss_mod, "subterm_energies"):
                 E_ram, E_hba, E_hbb = ss_mod.subterm_energies(R, seq, lengths=lengths)
-                out["secondary_ram"]      = float(E_ram.mean().item())
+                out["secondary_ram"] = float(E_ram.mean().item())
                 out["secondary_hb_alpha"] = float(E_hba.mean().item())
-                out["secondary_hb_beta"]  = float(E_hbb.mean().item())
+                out["secondary_hb_beta"] = float(E_hbb.mean().item())
                 out["secondary"] = out["secondary_ram"] + out["secondary_hb_alpha"] + out["secondary_hb_beta"]
             else:
                 out["secondary"] = float(ss_mod(R, seq, lengths=lengths).mean().item())
@@ -234,10 +228,10 @@ class BasinStabilityEvaluator:
         if pack_mod is not None:
             if hasattr(pack_mod, "subterm_energies"):
                 E_geom, E_hp, E_coord, E_rg = pack_mod.subterm_energies(R, seq, lengths=lengths)
-                out["packing_geom"]    = float(E_geom.mean().item())
+                out["packing_geom"] = float(E_geom.mean().item())
                 out["packing_contact"] = float(E_hp.mean().item())
-                out["packing_coord"]   = float(E_coord.mean().item())
-                out["packing_rg"]      = float(E_rg.mean().item())
+                out["packing_coord"] = float(E_coord.mean().item())
+                out["packing_rg"] = float(E_rg.mean().item())
                 out["packing"] = out["packing_geom"] + out["packing_contact"] + out["packing_coord"] + out["packing_rg"]
             else:
                 out["packing"] = float(pack_mod(R, seq, lengths=lengths).mean().item())
@@ -268,9 +262,7 @@ class BasinStabilityEvaluator:
 
         # Native reference (always the PDB structure)
         R_nat_np = R_native[:L].cpu().numpy()
-        ni_nat, nj_nat, d0_nat = native_contact_set(
-            R_nat_np, cutoff=self.contact_cutoff, exclude=self.exclude
-        )
+        ni_nat, nj_nat, d0_nat = native_contact_set(R_nat_np, cutoff=self.contact_cutoff, exclude=self.exclude)
 
         with torch.no_grad():
             E_init = float(self.model(R_b, seq_b, lengths=len_b).item())
@@ -293,8 +285,8 @@ class BasinStabilityEvaluator:
                     if L < theta.shape[1] + 2:
                         idx_t = torch.arange(theta.shape[1], device=R_b.device)
                         idx_p = torch.arange(phi.shape[1], device=R_b.device)
-                        noise_t[:, L-2:] = 0
-                        noise_p[:, L-3:] = 0
+                        noise_t[:, L - 2 :] = 0
+                        noise_p[:, L - 3 :] = 0
                     theta_p = (theta + noise_t).clamp(0.01, math.pi - 0.01)
                     phi_p = phi + noise_p
                     phi_p = (phi_p + math.pi) % (2 * math.pi) - math.pi
@@ -316,8 +308,12 @@ class BasinStabilityEvaluator:
                 with torch.no_grad():
                     E_minimized = float(self.model(R_min, seq_b, lengths=len_b).item())
                 min_sim = ICLangevinSimulator(
-                    model=self.model, seq=seq_b, R_init=R_min,
-                    step_size=self.step_size, beta=1e6, force_cap=self.force_cap,
+                    model=self.model,
+                    seq=seq_b,
+                    R_init=R_min,
+                    step_size=self.step_size,
+                    beta=1e6,
+                    force_cap=self.force_cap,
                     lengths=len_b,
                 )
                 check_every = 20
@@ -350,17 +346,15 @@ class BasinStabilityEvaluator:
 
         # Native contacts from NATIVE (not minimized/perturbed) for Q-to-native
         # Also compute contacts from the Langevin start for drift Q
-        ni_ref, nj_ref, d0_ref = native_contact_set(
-            R_ref_np, cutoff=self.contact_cutoff, exclude=self.exclude
-        )
+        ni_ref, nj_ref, d0_ref = native_contact_set(R_ref_np, cutoff=self.contact_cutoff, exclude=self.exclude)
 
         # --- Langevin dynamics ---
         traj_steps = []
         traj_energy = []
-        traj_rmsd = []          # RMSD to Langevin start (drift)
-        traj_rmsd_to_native = [] # RMSD to native PDB (recovery)
+        traj_rmsd = []  # RMSD to Langevin start (drift)
+        traj_rmsd_to_native = []  # RMSD to native PDB (recovery)
         traj_drmsd = []
-        traj_q = []             # Q relative to Langevin start
+        traj_q = []  # Q relative to Langevin start
         traj_rg = []
         traj_grad_norm = []
 
@@ -385,8 +379,12 @@ class BasinStabilityEvaluator:
 
         try:
             sim = ICLangevinSimulator(
-                model=self.model, seq=seq_b, R_init=R_min.detach(),
-                step_size=self.step_size, beta=beta, force_cap=self.force_cap,
+                model=self.model,
+                seq=seq_b,
+                R_init=R_min.detach(),
+                step_size=self.step_size,
+                beta=beta,
+                force_cap=self.force_cap,
                 lengths=len_b,
             )
             R_current = R_min.detach()
@@ -407,7 +405,7 @@ class BasinStabilityEvaluator:
                     traj_energy.append(info.energy)
                     traj_rmsd.append(rmsd_kabsch(R_snap, R_ref_np))
                     traj_rmsd_to_native.append(rmsd_kabsch(R_snap, R_nat_np))
-                    traj_drmsd.append(drmsd(R_snap, R_ref_np, mode='nonlocal', exclude=self.exclude))
+                    traj_drmsd.append(drmsd(R_snap, R_ref_np, mode="nonlocal", exclude=self.exclude))
                     traj_q.append(q_smooth(R_snap, ni_ref, nj_ref, d0_ref))
                     traj_rg.append(radius_of_gyration(R_snap))
                     traj_grad_norm.append(info.theta_grad_norm + info.phi_grad_norm)
@@ -444,29 +442,44 @@ class BasinStabilityEvaluator:
                         logger.info(
                             "    [%s] step %6d/%d  E=%.3f  RMSD=%.2f  dRMSD=%.2f  "
                             "Q=%.3f  Rg=%.1f/%.1f(%d%%)  drift=%.2f  |g|=%.2f  RMSF=%.2f",
-                            pdb_id, step_i, self.n_steps, traj_energy[-1],
-                            traj_rmsd_to_native[-1], traj_drmsd[-1],
+                            pdb_id,
+                            step_i,
+                            self.n_steps,
+                            traj_energy[-1],
+                            traj_rmsd_to_native[-1],
+                            traj_drmsd[-1],
                             traj_q[-1],
-                            traj_rg[-1], _rg_native, _rg_pct,
-                            traj_rmsd[-1], traj_grad_norm[-1], _rmsf_val,
+                            traj_rg[-1],
+                            _rg_native,
+                            _rg_pct,
+                            traj_rmsd[-1],
+                            traj_grad_norm[-1],
+                            _rmsf_val,
                         )
                         logger.info(
                             "           loc=%.3f rep=%.3f "
                             "ss=%.3f(ram=%.3f hba=%.3f hbb=%.3f) "
                             "pack=%.3f(g=%.3f c=%.3f co=%.3f rg=%.3f)",
-                            traj_E_local[-1], traj_E_repulsion[-1],
-                            traj_E_secondary[-1], traj_E_ram[-1],
-                            traj_E_hb_alpha[-1], traj_E_hb_beta[-1],
-                            traj_E_packing[-1], traj_E_geom[-1],
-                            traj_E_contact[-1], traj_E_coord[-1],
+                            traj_E_local[-1],
+                            traj_E_repulsion[-1],
+                            traj_E_secondary[-1],
+                            traj_E_ram[-1],
+                            traj_E_hb_alpha[-1],
+                            traj_E_hb_beta[-1],
+                            traj_E_packing[-1],
+                            traj_E_geom[-1],
+                            traj_E_contact[-1],
+                            traj_E_coord[-1],
                             traj_E_rg_comp[-1],
                         )
                         # Safety: forces (from Langevin info if available)
-                        _max_f = getattr(info, 'max_force', None)
-                        _clip_fr = getattr(info, 'clip_frac', None) or getattr(info, 'clip_fraction', None)
-                        _safety_parts = [f"min_dist={_min_dist:.3f}Å",
-                                         f"<4.0={_clash_4p0:.2f}%",
-                                         f"<4.5={_clash_4p5:.2f}%"]
+                        _max_f = getattr(info, "max_force", None)
+                        _clip_fr = getattr(info, "clip_frac", None) or getattr(info, "clip_fraction", None)
+                        _safety_parts = [
+                            f"min_dist={_min_dist:.3f}Å",
+                            f"<4.0={_clash_4p0:.2f}%",
+                            f"<4.5={_clash_4p5:.2f}%",
+                        ]
                         if _max_f is not None:
                             _safety_parts.append(f"max|F|={_max_f:.2f}")
                         if _clip_fr is not None:
@@ -510,7 +523,7 @@ class BasinStabilityEvaluator:
         # Final metrics
         R_fin_np = R_final[0, :L].cpu().numpy()
         rmsd_val = rmsd_kabsch(R_fin_np, R_ref_np)
-        drmsd_val = drmsd(R_fin_np, R_ref_np, mode='nonlocal', exclude=self.exclude)
+        drmsd_val = drmsd(R_fin_np, R_ref_np, mode="nonlocal", exclude=self.exclude)
         q_val = q_smooth(R_fin_np, ni_ref, nj_ref, d0_ref)
         rmsd_to_native = rmsd_kabsch(R_fin_np, R_nat_np)
         q_to_native = q_smooth(R_fin_np, ni_nat, nj_nat, d0_nat)
@@ -534,14 +547,24 @@ class BasinStabilityEvaluator:
             rmsf_val = 0.0
 
         return StructureResult(
-            pdb_id=pdb_id, chain_id=chain_id, length=L,
-            E_init=E_init, E_minimized=E_minimized, E_final=E_final,
+            pdb_id=pdb_id,
+            chain_id=chain_id,
+            length=L,
+            E_init=E_init,
+            E_minimized=E_minimized,
+            E_final=E_final,
             E_delta=E_final - E_minimized,
             rmsd_min=rmsd_min,
-            rmsd=rmsd_val, drmsd=drmsd_val, q=q_val, rmsf=rmsf_val,
-            min_converged=min_converged, min_steps_used=min_steps_used,
-            rmsd_start=rmsd_start, q_start=q_start,
-            rmsd_to_native=rmsd_to_native, q_to_native=q_to_native,
+            rmsd=rmsd_val,
+            drmsd=drmsd_val,
+            q=q_val,
+            rmsf=rmsf_val,
+            min_converged=min_converged,
+            min_steps_used=min_steps_used,
+            rmsd_start=rmsd_start,
+            q_start=q_start,
+            rmsd_to_native=rmsd_to_native,
+            q_to_native=q_to_native,
             recovered=recovered,
             langevin_converged=converged_step > 0,
             langevin_steps_used=converged_step if converged_step > 0 else self.n_steps,
@@ -574,13 +597,11 @@ class BasinStabilityEvaluator:
         beta: float,
     ) -> BetaResult:
         """Run all structures at a single beta."""
-        logger.info("  Running %d structures at beta=%.1f (%d Langevin steps)...",
-                    len(structures), beta, self.n_steps)
+        logger.info("  Running %d structures at beta=%.1f (%d Langevin steps)...", len(structures), beta, self.n_steps)
 
         results = []
         for idx, (R_nat, seq, pdb_id, chain_id, length) in enumerate(structures):
-            r = self._run_single(R_nat, seq, beta, pdb_id=pdb_id, chain_id=chain_id,
-                                 length=length)
+            r = self._run_single(R_nat, seq, beta, pdb_id=pdb_id, chain_id=chain_id, length=length)
             if r is not None:
                 results.append(r)
             if (idx + 1) % 8 == 0 or idx == len(structures) - 1:
@@ -597,28 +618,66 @@ class BasinStabilityEvaluator:
             if is_perturbed:
                 # Perturbed start: show recovery metrics
                 logger.info("  " + "-" * 105)
-                logger.info("  %-10s %3s  %4s  %7s  %7s  %7s  %6s  %6s  %8s  %s",
-                            "pdb", "ch", "L", "RMSD_0", "RMSD_f", "dRMSD", "Q_0", "Q_f", "E_delta", "recovery")
+                logger.info(
+                    "  %-10s %3s  %4s  %7s  %7s  %7s  %6s  %6s  %8s  %s",
+                    "pdb",
+                    "ch",
+                    "L",
+                    "RMSD_0",
+                    "RMSD_f",
+                    "dRMSD",
+                    "Q_0",
+                    "Q_f",
+                    "E_delta",
+                    "recovery",
+                )
                 logger.info("  " + "-" * 105)
                 for sr in sorted(results, key=lambda x: x.rmsd_to_native):
                     delta_rmsd = sr.rmsd_to_native - sr.rmsd_start
                     status = "RECOVERED" if sr.recovered else "drifted"
-                    logger.info("  %-10s %3s  %4d  %7.2f  %7.2f  %7.2f  %6.3f  %6.3f  %+8.3f  %s (%+.1f)",
-                                sr.pdb_id, sr.chain_id, sr.length,
-                                sr.rmsd_start, sr.rmsd_to_native, sr.drmsd,
-                                sr.q_start, sr.q_to_native,
-                                sr.E_delta, status, delta_rmsd)
+                    logger.info(
+                        "  %-10s %3s  %4d  %7.2f  %7.2f  %7.2f  %6.3f  %6.3f  %+8.3f  %s (%+.1f)",
+                        sr.pdb_id,
+                        sr.chain_id,
+                        sr.length,
+                        sr.rmsd_start,
+                        sr.rmsd_to_native,
+                        sr.drmsd,
+                        sr.q_start,
+                        sr.q_to_native,
+                        sr.E_delta,
+                        status,
+                        delta_rmsd,
+                    )
                 n_recovered = sum(1 for r in results if r.recovered)
                 mean_start = np.mean([r.rmsd_start for r in results])
                 mean_final = np.mean([r.rmsd_to_native for r in results])
-                logger.info("  Recovery: %d/%d (%.0f%%)  mean RMSD: %.2f → %.2f (%+.2f)",
-                            n_recovered, len(results), 100 * n_recovered / len(results),
-                            mean_start, mean_final, mean_final - mean_start)
+                logger.info(
+                    "  Recovery: %d/%d (%.0f%%)  mean RMSD: %.2f → %.2f (%+.2f)",
+                    n_recovered,
+                    len(results),
+                    100 * n_recovered / len(results),
+                    mean_start,
+                    mean_final,
+                    mean_final - mean_start,
+                )
 
             elif has_min:
                 logger.info("  " + "-" * 110)
-                logger.info("  %-10s %3s  %4s  %8s  %7s  %8s  %7s  %7s  %6s  %6s  %s",
-                            "pdb", "ch", "L", "E_delta", "E_drop", "RMSD_min", "RMSD", "dRMSD", "Q", "RMSF", "status")
+                logger.info(
+                    "  %-10s %3s  %4s  %8s  %7s  %8s  %7s  %7s  %6s  %6s  %s",
+                    "pdb",
+                    "ch",
+                    "L",
+                    "E_delta",
+                    "E_drop",
+                    "RMSD_min",
+                    "RMSD",
+                    "dRMSD",
+                    "Q",
+                    "RMSF",
+                    "status",
+                )
                 logger.info("  " + "-" * 110)
                 for sr in sorted(results, key=lambda x: x.E_delta):
                     if sr.E_delta < -0.3:
@@ -628,22 +687,46 @@ class BasinStabilityEvaluator:
                     else:
                         status = "STABLE"
                     e_drop = sr.E_init - sr.E_minimized
-                    logger.info("  %-10s %3s  %4d  %+8.3f  %+7.3f  %8.2f  %7.2f  %7.2f  %6.3f  %6.2f  %s",
-                                sr.pdb_id, sr.chain_id, sr.length,
-                                sr.E_delta, e_drop, sr.rmsd_min,
-                                sr.rmsd, sr.drmsd, sr.q, sr.rmsf, status)
+                    logger.info(
+                        "  %-10s %3s  %4d  %+8.3f  %+7.3f  %8.2f  %7.2f  %7.2f  %6.3f  %6.2f  %s",
+                        sr.pdb_id,
+                        sr.chain_id,
+                        sr.length,
+                        sr.E_delta,
+                        e_drop,
+                        sr.rmsd_min,
+                        sr.rmsd,
+                        sr.drmsd,
+                        sr.q,
+                        sr.rmsf,
+                        status,
+                    )
                 drops = [sr.E_init - sr.E_minimized for sr in results]
                 rmins = [sr.rmsd_min for sr in results]
                 n_conv = sum(1 for sr in results if sr.min_converged)
                 mean_steps = np.mean([sr.min_steps_used for sr in results])
-                logger.info("  Minimization: mean E_drop=%.3f  mean RMSD_to_PDB=%.2fÅ  "
-                            "converged=%d/%d  mean_steps=%.0f",
-                            np.mean(drops), np.mean(rmins),
-                            n_conv, len(results), mean_steps)
+                logger.info(
+                    "  Minimization: mean E_drop=%.3f  mean RMSD_to_PDB=%.2fÅ  " "converged=%d/%d  mean_steps=%.0f",
+                    np.mean(drops),
+                    np.mean(rmins),
+                    n_conv,
+                    len(results),
+                    mean_steps,
+                )
             else:
                 logger.info("  " + "-" * 90)
-                logger.info("  %-10s %3s  %4s  %8s  %7s  %7s  %6s  %6s  %s",
-                            "pdb", "ch", "L", "E_delta", "RMSD", "dRMSD", "Q", "RMSF", "status")
+                logger.info(
+                    "  %-10s %3s  %4s  %8s  %7s  %7s  %6s  %6s  %s",
+                    "pdb",
+                    "ch",
+                    "L",
+                    "E_delta",
+                    "RMSD",
+                    "dRMSD",
+                    "Q",
+                    "RMSF",
+                    "status",
+                )
                 logger.info("  " + "-" * 90)
                 for sr in sorted(results, key=lambda x: x.E_delta):
                     if sr.E_delta < -0.3:
@@ -652,9 +735,18 @@ class BasinStabilityEvaluator:
                         status = "unstable"
                     else:
                         status = "STABLE"
-                    logger.info("  %-10s %3s  %4d  %+8.3f  %7.2f  %7.2f  %6.3f  %6.2f  %s",
-                                sr.pdb_id, sr.chain_id, sr.length,
-                                sr.E_delta, sr.rmsd, sr.drmsd, sr.q, sr.rmsf, status)
+                    logger.info(
+                        "  %-10s %3s  %4d  %+8.3f  %7.2f  %7.2f  %6.3f  %6.2f  %s",
+                        sr.pdb_id,
+                        sr.chain_id,
+                        sr.length,
+                        sr.E_delta,
+                        sr.rmsd,
+                        sr.drmsd,
+                        sr.q,
+                        sr.rmsf,
+                        status,
+                    )
 
             # Length vs E_delta correlation
             if len(results) >= 4:
@@ -662,11 +754,15 @@ class BasinStabilityEvaluator:
                 eds = np.array([r.E_delta for r in results], dtype=np.float64)
                 if np.std(lens) > 0 and np.std(eds) > 0:
                     corr = float(np.corrcoef(lens, eds)[0, 1])
-                    logger.info("  Length vs E_delta: r=%.3f (%s)",
-                                corr,
-                                "longer → less stable" if corr > 0.3
-                                else "weak/none" if abs(corr) <= 0.3
-                                else "shorter → less stable")
+                    logger.info(
+                        "  Length vs E_delta: r=%.3f (%s)",
+                        corr,
+                        "longer → less stable"
+                        if corr > 0.3
+                        else "weak/none"
+                        if abs(corr) <= 0.3
+                        else "shorter → less stable",
+                    )
 
             # --- Trajectory evolution summary ---
             traj_results = [r for r in results if len(r.traj_steps) > 0]
@@ -678,7 +774,9 @@ class BasinStabilityEvaluator:
                 all_rmsd = np.array([r.traj_rmsd[:n_snaps] for r in traj_results if len(r.traj_rmsd) >= n_snaps])
                 all_q = np.array([r.traj_q[:n_snaps] for r in traj_results if len(r.traj_q) >= n_snaps])
                 all_rg = np.array([r.traj_rg[:n_snaps] for r in traj_results if len(r.traj_rg) >= n_snaps])
-                all_rmsd_nat = np.array([r.traj_rmsd_to_native[:n_snaps] for r in traj_results if len(r.traj_rmsd_to_native) >= n_snaps])
+                all_rmsd_nat = np.array(
+                    [r.traj_rmsd_to_native[:n_snaps] for r in traj_results if len(r.traj_rmsd_to_native) >= n_snaps]
+                )
 
                 if len(all_E) > 0:
                     milestones = [0, n_snaps // 4, n_snaps // 2, 3 * n_snaps // 4, n_snaps - 1]
@@ -687,47 +785,78 @@ class BasinStabilityEvaluator:
                     if is_perturbed and len(all_rmsd_nat) > 0:
                         # Show both drift RMSD and RMSD-to-native (recovery)
                         logger.info("  " + "-" * 95)
-                        logger.info("  Trajectory evolution (mean ± std over %d structures, σ=%.2f):",
-                                    len(all_E), self.perturb_sigma)
-                        logger.info("  %8s  %10s  %12s  %12s  %10s  %10s",
-                                    "step", "Energy", "RMSD_drift", "RMSD_native", "Q", "Rg(Å)")
+                        logger.info(
+                            "  Trajectory evolution (mean ± std over %d structures, σ=%.2f):",
+                            len(all_E),
+                            self.perturb_sigma,
+                        )
+                        logger.info(
+                            "  %8s  %10s  %12s  %12s  %10s  %10s",
+                            "step",
+                            "Energy",
+                            "RMSD_drift",
+                            "RMSD_native",
+                            "Q",
+                            "Rg(Å)",
+                        )
                         logger.info("  " + "-" * 95)
                         for mi in milestones:
-                            logger.info("  %8d  %+7.3f±%.2f  %6.2f±%.2f  %6.2f±%.2f  %6.3f±%.3f  %6.2f±%.2f",
-                                        int(steps[mi]),
-                                        float(all_E[:, mi].mean()), float(all_E[:, mi].std()),
-                                        float(all_rmsd[:, mi].mean()), float(all_rmsd[:, mi].std()),
-                                        float(all_rmsd_nat[:, mi].mean()), float(all_rmsd_nat[:, mi].std()),
-                                        float(all_q[:, mi].mean()), float(all_q[:, mi].std()),
-                                        float(all_rg[:, mi].mean()), float(all_rg[:, mi].std()))
+                            logger.info(
+                                "  %8d  %+7.3f±%.2f  %6.2f±%.2f  %6.2f±%.2f  %6.3f±%.3f  %6.2f±%.2f",
+                                int(steps[mi]),
+                                float(all_E[:, mi].mean()),
+                                float(all_E[:, mi].std()),
+                                float(all_rmsd[:, mi].mean()),
+                                float(all_rmsd[:, mi].std()),
+                                float(all_rmsd_nat[:, mi].mean()),
+                                float(all_rmsd_nat[:, mi].std()),
+                                float(all_q[:, mi].mean()),
+                                float(all_q[:, mi].std()),
+                                float(all_rg[:, mi].mean()),
+                                float(all_rg[:, mi].std()),
+                            )
                         logger.info("  " + "-" * 95)
 
                         # Recovery check: does RMSD to native decrease?
                         rmsd_nat_start = float(all_rmsd_nat[:, 0].mean())
                         rmsd_nat_end = float(all_rmsd_nat[:, -1].mean())
                         if rmsd_nat_end < rmsd_nat_start * 0.9:
-                            logger.info("  ✓ BASIN RECOVERY: RMSD to native decreased (%.2f → %.2f) — landscape pulls toward native",
-                                        rmsd_nat_start, rmsd_nat_end)
+                            logger.info(
+                                "  ✓ BASIN RECOVERY: RMSD to native decreased (%.2f → %.2f) — landscape pulls toward native",
+                                rmsd_nat_start,
+                                rmsd_nat_end,
+                            )
                         elif rmsd_nat_end < rmsd_nat_start * 1.1:
-                            logger.info("  ~ RMSD to native stable (%.2f → %.2f) — near basin edge",
-                                        rmsd_nat_start, rmsd_nat_end)
+                            logger.info(
+                                "  ~ RMSD to native stable (%.2f → %.2f) — near basin edge",
+                                rmsd_nat_start,
+                                rmsd_nat_end,
+                            )
                         else:
-                            logger.info("  ✗ RMSD to native increased (%.2f → %.2f) — no basin recovery",
-                                        rmsd_nat_start, rmsd_nat_end)
+                            logger.info(
+                                "  ✗ RMSD to native increased (%.2f → %.2f) — no basin recovery",
+                                rmsd_nat_start,
+                                rmsd_nat_end,
+                            )
                     else:
                         # Standard trajectory table (start from native)
                         logger.info("  " + "-" * 80)
                         logger.info("  Trajectory evolution (mean ± std over %d structures):", len(all_E))
-                        logger.info("  %8s  %10s  %10s  %10s  %10s",
-                                    "step", "Energy", "RMSD(Å)", "Q", "Rg(Å)")
+                        logger.info("  %8s  %10s  %10s  %10s  %10s", "step", "Energy", "RMSD(Å)", "Q", "Rg(Å)")
                         logger.info("  " + "-" * 80)
                         for mi in milestones:
-                            logger.info("  %8d  %+7.3f±%.2f  %6.2f±%.2f  %6.3f±%.3f  %6.2f±%.2f",
-                                        int(steps[mi]),
-                                        float(all_E[:, mi].mean()), float(all_E[:, mi].std()),
-                                        float(all_rmsd[:, mi].mean()), float(all_rmsd[:, mi].std()),
-                                        float(all_q[:, mi].mean()), float(all_q[:, mi].std()),
-                                        float(all_rg[:, mi].mean()), float(all_rg[:, mi].std()))
+                            logger.info(
+                                "  %8d  %+7.3f±%.2f  %6.2f±%.2f  %6.3f±%.3f  %6.2f±%.2f",
+                                int(steps[mi]),
+                                float(all_E[:, mi].mean()),
+                                float(all_E[:, mi].std()),
+                                float(all_rmsd[:, mi].mean()),
+                                float(all_rmsd[:, mi].std()),
+                                float(all_q[:, mi].mean()),
+                                float(all_q[:, mi].std()),
+                                float(all_rg[:, mi].mean()),
+                                float(all_rg[:, mi].std()),
+                            )
                         logger.info("  " + "-" * 80)
 
                         mid_idx = n_snaps // 2
@@ -736,13 +865,22 @@ class BasinStabilityEvaluator:
                         rmsd_q3 = float(all_rmsd[:, q3_idx].mean())
                         rmsd_end = float(all_rmsd[:, -1].mean())
                         if rmsd_end > rmsd_mid * 1.1:
-                            logger.info("  ⚠ RMSD still growing (mid=%.2f → q3=%.2f → end=%.2f) — not equilibrated",
-                                        rmsd_mid, rmsd_q3, rmsd_end)
+                            logger.info(
+                                "  ⚠ RMSD still growing (mid=%.2f → q3=%.2f → end=%.2f) — not equilibrated",
+                                rmsd_mid,
+                                rmsd_q3,
+                                rmsd_end,
+                            )
                         else:
                             last_quarter = all_rmsd[:, q3_idx:]
                             lq_std = float(last_quarter.std())
-                            logger.info("  ✓ RMSD plateaued (mid=%.2f → q3=%.2f → end=%.2f, last-quarter std=%.3f) — equilibrated",
-                                        rmsd_mid, rmsd_q3, rmsd_end, lq_std)
+                            logger.info(
+                                "  ✓ RMSD plateaued (mid=%.2f → q3=%.2f → end=%.2f, last-quarter std=%.3f) — equilibrated",
+                                rmsd_mid,
+                                rmsd_q3,
+                                rmsd_end,
+                                lq_std,
+                            )
 
                         # Early stopping status
                         if self.no_early_stop:
@@ -752,9 +890,13 @@ class BasinStabilityEvaluator:
             n_converged = sum(1 for r in results if r.langevin_converged)
             if n_converged > 0:
                 conv_steps = [r.langevin_steps_used for r in results if r.langevin_converged]
-                logger.info("  Convergence: %d/%d equilibrated early (mean step=%d, saved %.0f%% compute)",
-                            n_converged, len(results), int(np.mean(conv_steps)),
-                            100 * (1 - np.mean(conv_steps) / self.n_steps))
+                logger.info(
+                    "  Convergence: %d/%d equilibrated early (mean step=%d, saved %.0f%% compute)",
+                    n_converged,
+                    len(results),
+                    int(np.mean(conv_steps)),
+                    100 * (1 - np.mean(conv_steps) / self.n_steps),
+                )
 
         return br
 
@@ -790,25 +932,27 @@ class BasinStabilityEvaluator:
                 break
 
         real_lengths = [s[4] for s in structures]
-        logger.info("Collected %d structures for basin stability (L=%d-%d, mean=%d)",
-                    len(structures),
-                    min(real_lengths) if real_lengths else 0,
-                    max(real_lengths) if real_lengths else 0,
-                    int(np.mean(real_lengths)) if real_lengths else 0)
+        logger.info(
+            "Collected %d structures for basin stability (L=%d-%d, mean=%d)",
+            len(structures),
+            min(real_lengths) if real_lengths else 0,
+            max(real_lengths) if real_lengths else 0,
+            int(np.mean(real_lengths)) if real_lengths else 0,
+        )
 
         self.model.eval()
 
         if self.minimize_steps > 0:
-            logger.info("Energy minimization: %d steps (β=1e6) before each Langevin run",
-                        self.minimize_steps)
+            logger.info("Energy minimization: %d steps (β=1e6) before each Langevin run", self.minimize_steps)
 
         if self.perturb_sigma > 0:
-            logger.info("IC perturbation: σ_base=%.2f, scaled by 1/√(L/50) per structure",
-                        self.perturb_sigma)
-            logger.info("  → L=50: σ=%.3f  L=100: σ=%.3f  L=200: σ=%.3f  (targets ~3-5Å RMSD for all lengths)",
-                        self.perturb_sigma,
-                        self.perturb_sigma / math.sqrt(100 / 50),
-                        self.perturb_sigma / math.sqrt(200 / 50))
+            logger.info("IC perturbation: σ_base=%.2f, scaled by 1/√(L/50) per structure", self.perturb_sigma)
+            logger.info(
+                "  → L=50: σ=%.3f  L=100: σ=%.3f  L=200: σ=%.3f  (targets ~3-5Å RMSD for all lengths)",
+                self.perturb_sigma,
+                self.perturb_sigma / math.sqrt(100 / 50),
+                self.perturb_sigma / math.sqrt(200 / 50),
+            )
 
         results = {}
         for beta in sorted(betas):
@@ -821,16 +965,33 @@ class BasinStabilityEvaluator:
         logger.info("\n" + "=" * 80)
         logger.info("  BASIN STABILITY SWEEP")
         logger.info("=" * 80)
-        logger.info("  %-6s  %8s  %8s  %6s  %7s  %7s  %6s  %6s  %7s",
-                    "beta", "E_delta", "median", "neg%", "RMSD", "dRMSD", "Q", "RMSF", "stable")
+        logger.info(
+            "  %-6s  %8s  %8s  %6s  %7s  %7s  %6s  %6s  %7s",
+            "beta",
+            "E_delta",
+            "median",
+            "neg%",
+            "RMSD",
+            "dRMSD",
+            "Q",
+            "RMSF",
+            "stable",
+        )
         logger.info("  " + "-" * 76)
         for beta in sorted(results.keys()):
             r = results[beta]
-            logger.info("  %-6.1f  %+8.3f  %+8.3f  %5.1f%%  %7.2f  %7.2f  %6.3f  %6.2f  %7s",
-                        beta, r.E_delta_mean, r.E_delta_median,
-                        100 * r.E_delta_neg_frac,
-                        r.rmsd_mean, r.drmsd_mean, r.q_mean, r.rmsf_mean,
-                        "YES" if r.is_stable else "no")
+            logger.info(
+                "  %-6.1f  %+8.3f  %+8.3f  %5.1f%%  %7.2f  %7.2f  %6.3f  %6.2f  %7s",
+                beta,
+                r.E_delta_mean,
+                r.E_delta_median,
+                100 * r.E_delta_neg_frac,
+                r.rmsd_mean,
+                r.drmsd_mean,
+                r.q_mean,
+                r.rmsf_mean,
+                "YES" if r.is_stable else "no",
+            )
         logger.info("=" * 80)
 
         return results
@@ -840,9 +1001,11 @@ class BasinStabilityEvaluator:
 # Result saving
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def save_basin_results(results: Dict[float, BetaResult], out_dir: Path) -> None:
     """Save BetaResult objects to JSON scalars + per-structure trajectory CSVs."""
     import csv as _csv
+
     from calphaebm.evaluation.io.writers import save_metrics_json
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -850,20 +1013,20 @@ def save_basin_results(results: Dict[float, BetaResult], out_dir: Path) -> None:
     for beta, br in results.items():
         scalars = {
             "beta": beta,
-            "n_structures":     br.n_structures,
-            "E_delta_mean":     br.E_delta_mean,
-            "E_delta_median":   br.E_delta_median,
-            "E_delta_p05":      br.E_delta_p05,
-            "E_delta_p95":      br.E_delta_p95,
+            "n_structures": br.n_structures,
+            "E_delta_mean": br.E_delta_mean,
+            "E_delta_median": br.E_delta_median,
+            "E_delta_p05": br.E_delta_p05,
+            "E_delta_p95": br.E_delta_p95,
             "E_delta_neg_frac": br.E_delta_neg_frac,
-            "rmsd_mean":        br.rmsd_mean,
-            "rmsd_p05":         br.rmsd_p05,
-            "rmsd_p95":         br.rmsd_p95,
-            "drmsd_mean":       br.drmsd_mean,
-            "q_mean":           br.q_mean,
-            "q_p05":            br.q_p05,
-            "rmsf_mean":        br.rmsf_mean,
-            "is_stable":        br.is_stable,
+            "rmsd_mean": br.rmsd_mean,
+            "rmsd_p05": br.rmsd_p05,
+            "rmsd_p95": br.rmsd_p95,
+            "drmsd_mean": br.drmsd_mean,
+            "q_mean": br.q_mean,
+            "q_p05": br.q_p05,
+            "rmsf_mean": br.rmsf_mean,
+            "is_stable": br.is_stable,
         }
         save_metrics_json(scalars, out_dir / f"beta_{beta:.1f}.json")
 
@@ -876,17 +1039,34 @@ def save_basin_results(results: Dict[float, BetaResult], out_dir: Path) -> None:
             traj_path = traj_dir / f"{sr.pdb_id}_{sr.chain_id}.csv"
             with open(traj_path, "w", newline="") as f:
                 writer = _csv.writer(f)
-                writer.writerow([
-                    "step", "energy", "rmsd", "rmsd_to_native",
-                    "drmsd", "q", "rg", "grad_norm", "mean_rmsf",
-                    "E_local", "E_repulsion", "E_secondary",
-                    "E_ram", "E_hb_alpha", "E_hb_beta",
-                    "E_packing", "E_geom", "E_contact", "E_coord", "E_rg",
-                ])
+                writer.writerow(
+                    [
+                        "step",
+                        "energy",
+                        "rmsd",
+                        "rmsd_to_native",
+                        "drmsd",
+                        "q",
+                        "rg",
+                        "grad_norm",
+                        "mean_rmsf",
+                        "E_local",
+                        "E_repulsion",
+                        "E_secondary",
+                        "E_ram",
+                        "E_hb_alpha",
+                        "E_hb_beta",
+                        "E_packing",
+                        "E_geom",
+                        "E_contact",
+                        "E_coord",
+                        "E_rg",
+                    ]
+                )
                 has_comp = len(sr.traj_E_local) == len(sr.traj_steps)
                 for i in range(len(sr.traj_steps)):
-                    rn  = sr.traj_rmsd_to_native[i] if i < len(sr.traj_rmsd_to_native) else ""
-                    mrf = sr.traj_mean_rmsf[i]       if i < len(sr.traj_mean_rmsf)       else ""
+                    rn = sr.traj_rmsd_to_native[i] if i < len(sr.traj_rmsd_to_native) else ""
+                    mrf = sr.traj_mean_rmsf[i] if i < len(sr.traj_mean_rmsf) else ""
                     row = [
                         int(sr.traj_steps[i]),
                         f"{sr.traj_energy[i]:.4f}",
@@ -899,19 +1079,21 @@ def save_basin_results(results: Dict[float, BetaResult], out_dir: Path) -> None:
                         f"{mrf:.4f}" if isinstance(mrf, float) else "",
                     ]
                     if has_comp:
-                        row.extend([
-                            f"{sr.traj_E_local[i]:.4f}",
-                            f"{sr.traj_E_repulsion[i]:.4f}",
-                            f"{sr.traj_E_secondary[i]:.4f}",
-                            f"{sr.traj_E_ram[i]:.4f}",
-                            f"{sr.traj_E_hb_alpha[i]:.4f}",
-                            f"{sr.traj_E_hb_beta[i]:.4f}",
-                            f"{sr.traj_E_packing[i]:.4f}",
-                            f"{sr.traj_E_geom[i]:.4f}",
-                            f"{sr.traj_E_contact[i]:.4f}",
-                            f"{sr.traj_E_coord[i]:.4f}",
-                            f"{sr.traj_E_rg[i]:.4f}",
-                        ])
+                        row.extend(
+                            [
+                                f"{sr.traj_E_local[i]:.4f}",
+                                f"{sr.traj_E_repulsion[i]:.4f}",
+                                f"{sr.traj_E_secondary[i]:.4f}",
+                                f"{sr.traj_E_ram[i]:.4f}",
+                                f"{sr.traj_E_hb_alpha[i]:.4f}",
+                                f"{sr.traj_E_hb_beta[i]:.4f}",
+                                f"{sr.traj_E_packing[i]:.4f}",
+                                f"{sr.traj_E_geom[i]:.4f}",
+                                f"{sr.traj_E_contact[i]:.4f}",
+                                f"{sr.traj_E_coord[i]:.4f}",
+                                f"{sr.traj_E_rg[i]:.4f}",
+                            ]
+                        )
                     else:
                         row.extend([""] * 11)
                     writer.writerow(row)
@@ -930,16 +1112,20 @@ def save_basin_results(results: Dict[float, BetaResult], out_dir: Path) -> None:
 # CLI entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def run_basin(args) -> int:
     """Run basin stability evaluation (calphaebm evaluate --mode basin)."""
     import random as _random
-    from calphaebm.utils.seed import seed_all
+
     from calphaebm.cli.commands.train.data_utils import parse_pdb_arg
+    from calphaebm.utils.seed import seed_all
 
     if not args.checkpoint:
-        logger.error("--checkpoint is required for --mode basin");  return 1
+        logger.error("--checkpoint is required for --mode basin")
+        return 1
     if not args.pdb:
-        logger.error("--pdb is required for --mode basin");          return 1
+        logger.error("--pdb is required for --mode basin")
+        return 1
 
     seed_all(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -953,22 +1139,21 @@ def run_basin(args) -> int:
         eval_ids = all_ids
     else:
         ckpt_dir = Path(args.checkpoint).parent
-        val_ids  = None
+        val_ids = None
         for sd in [ckpt_dir, ckpt_dir.parent, ckpt_dir.parent.parent]:
             vp = sd / "val_ids.txt"
             if vp.exists():
-                raw = [l.strip() for l in vp.read_text().splitlines()
-                       if l.strip() and not l.strip().startswith("#")]
+                raw = [l.strip() for l in vp.read_text().splitlines() if l.strip() and not l.strip().startswith("#")]
                 if raw:
-                    val_ids = list(dict.fromkeys(
-                        v.split("_")[0].upper() for v in raw if v))
+                    val_ids = list(dict.fromkeys(v.split("_")[0].upper() for v in raw if v))
                     logger.info("Loaded %d val IDs from %s", len(val_ids), vp)
                     break
         if not val_ids:
             logger.warning("No val_ids.txt — using 80/20 split (seed=42)")
             rng = _random.Random(42)
-            shuffled = list(all_ids);  rng.shuffle(shuffled)
-            val_ids = shuffled[int(0.8 * len(shuffled)):]
+            shuffled = list(all_ids)
+            rng.shuffle(shuffled)
+            val_ids = shuffled[int(0.8 * len(shuffled)) :]
         eval_ids = val_ids
 
     # ── Load structures ───────────────────────────────────────────────────────
@@ -981,7 +1166,7 @@ def run_basin(args) -> int:
         processed_cache_dir=getattr(args, "processed_cache_dir", None),
     )
     logger.info("Loaded %d structures", len(structures))
-    for i, (_, _, pid, cid, L) in enumerate(structures[:args.n_samples]):
+    for i, (_, _, pid, cid, L) in enumerate(structures[: args.n_samples]):
         logger.info("  %d: %s chain %s  L=%d", i, pid, cid, L)
 
     val_loader = structures_to_loader(structures)
@@ -991,14 +1176,19 @@ def run_basin(args) -> int:
     logger.info("Loaded checkpoint: %s", args.checkpoint)
     if hasattr(model, "get_gates"):
         g = model.get_gates()
-        logger.info("Gates: local=%.3f rep=%.3f ss=%.3f pack=%.3f",
-                    g.get("local",1.0), g.get("repulsion",1.0),
-                    g.get("secondary",1.0), g.get("packing",1.0))
+        logger.info(
+            "Gates: local=%.3f rep=%.3f ss=%.3f pack=%.3f",
+            g.get("local", 1.0),
+            g.get("repulsion", 1.0),
+            g.get("secondary", 1.0),
+            g.get("packing", 1.0),
+        )
 
     # ── Run sweep ─────────────────────────────────────────────────────────────
     betas = sorted(args.beta) if isinstance(args.beta, list) else [args.beta]
     evaluator = BasinStabilityEvaluator(
-        model=model, device=device,
+        model=model,
+        device=device,
         n_steps=args.n_steps,
         minimize_steps=args.minimize_steps,
         step_size=args.step_size,

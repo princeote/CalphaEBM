@@ -32,13 +32,13 @@ def plot_feature_distributions(
     fig.suptitle(f"Geometry Feature Distributions  (sig_tau = {sig_tau:.4f} Å)", fontsize=11)
 
     for col, name in enumerate(FEATURE_NAMES):
-        f  = raw_arrays[name]
+        f = raw_arrays[name]
         fs = feature_stats[name]
 
         # ── raw ───────────────────────────────────────────────────────────────
         ax = axes[0, col]
         ax.hist(f, bins=60, color="steelblue", alpha=0.7, density=True)
-        ax.axvline(fs.mean, color="red",  linewidth=1.5, label=f"μ={fs.mean:.3f}")
+        ax.axvline(fs.mean, color="red", linewidth=1.5, label=f"μ={fs.mean:.3f}")
         ax.axvline(fs.mean - fs.std, color="red", linewidth=0.8, linestyle="--")
         ax.axvline(fs.mean + fs.std, color="red", linewidth=0.8, linestyle="--")
         ax.set_title(name, fontsize=9)
@@ -57,8 +57,7 @@ def plot_feature_distributions(
             fn = f / max(fs.mean, 1e-9)
             denom_label = f"x / {fs.mean:.3f}"
         ax2.hist(fn, bins=60, color="darkorange", alpha=0.7, density=True)
-        ax2.axvline(float(fn.mean()), color="navy", linewidth=1.5,
-                    label=f"μ={fn.mean():.2f}\nσ={fn.std():.2f}")
+        ax2.axvline(float(fn.mean()), color="navy", linewidth=1.5, label=f"μ={fn.mean():.2f}\nσ={fn.std():.2f}")
         ax2.set_xlabel(denom_label, fontsize=7)
         ax2.tick_params(labelsize=7)
         ax2.legend(fontsize=7)
@@ -71,4 +70,5 @@ def plot_feature_distributions(
     plt.close(fig)
 
     from calphaebm.utils.logging import get_logger
+
     get_logger().info("Saved feature distribution plot to %s", out_path)

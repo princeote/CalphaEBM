@@ -1,7 +1,5 @@
 """CLI commands package."""
 
-from . import analyze
-from . import calibrate
-from . import train
+from . import analyze, calibrate, train
 
 __all__ = ["analyze", "calibrate", "train"]

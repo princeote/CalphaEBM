@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass, field
-from typing import Iterator, List, Tuple, Optional, Dict, Any
 from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -33,16 +33,16 @@ logger = get_logger()
 RCSB_CIF_URL = "https://files.rcsb.org/download/{pdb_id}.cif"
 
 # Geometry validation constants (Å)
-MIN_BOND_LENGTH = 3.5          # absolute minimum for Cα-Cα
-MAX_BOND_LENGTH = 4.1          # absolute maximum for Cα-Cα
+MIN_BOND_LENGTH = 3.5  # absolute minimum for Cα-Cα
+MAX_BOND_LENGTH = 4.1  # absolute maximum for Cα-Cα
 IDEAL_BOND_LENGTH = 3.8
-MAX_BOND_DEVIATION = 0.3       # warning-only mean deviation threshold
-MIN_FRAGMENT_LENGTH = 8        # minimum residues for a valid fragment/window
-MAX_CONSECUTIVE_GAP = 0.5      # max allowed change between consecutive bonds (Å)
+MAX_BOND_DEVIATION = 0.3  # warning-only mean deviation threshold
+MIN_FRAGMENT_LENGTH = 8  # minimum residues for a valid fragment/window
+MAX_CONSECUTIVE_GAP = 0.5  # max allowed change between consecutive bonds (Å)
 
 # Parser-side cleanup
 DROP_NEAR_DUPLICATE_CA = True
-NEAR_DUPLICATE_CA_EPS = 0.50   # Å; if consecutive CA points are closer than this, drop the later point
+NEAR_DUPLICATE_CA_EPS = 0.50  # Å; if consecutive CA points are closer than this, drop the later point
 
 # Download robustness
 DEFAULT_DOWNLOAD_TIMEOUT_S = 30
@@ -50,9 +50,9 @@ DEFAULT_DOWNLOAD_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_S = 1.5
 
 # B-factor quality thresholds
-DEFAULT_MAX_MEAN_BFACTOR = 40.0    # Å²; chains with higher mean B are poorly determined
-DEFAULT_MAX_RESIDUE_BFACTOR = 80.0 # Å²; individual residues above this are disordered
-DEFAULT_MAX_HIGH_B_FRAC = 0.10     # reject if >10% of residues have B > MAX_RESIDUE_BFACTOR
+DEFAULT_MAX_MEAN_BFACTOR = 40.0  # Å²; chains with higher mean B are poorly determined
+DEFAULT_MAX_RESIDUE_BFACTOR = 80.0  # Å²; individual residues above this are disordered
+DEFAULT_MAX_HIGH_B_FRAC = 0.10  # reject if >10% of residues have B > MAX_RESIDUE_BFACTOR
 
 
 @dataclass
@@ -61,10 +61,10 @@ class ChainCA:
 
     pdb_id: str
     chain_id: str
-    coords: np.ndarray       # (L, 3) float32
-    seq: np.ndarray           # (L,) int64 (amino acid indices)
+    coords: np.ndarray  # (L, 3) float32
+    seq: np.ndarray  # (L,) int64 (amino acid indices)
     bfactors: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))  # (L,) float32
-    resseqs: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))     # (L,) residue numbers
+    resseqs: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # (L,) residue numbers
 
     def __len__(self) -> int:
         return len(self.coords)
@@ -159,7 +159,7 @@ def download_cif(
 
 def _select_ca_coord_and_bfactor(res) -> Tuple[Optional[np.ndarray], float]:
     """Select a CA coordinate and B-factor from a Biopython residue robustly.
-    
+
     Returns (coord, bfactor) or (None, 0.0) if CA not found.
     """
     if "CA" not in res:
@@ -277,15 +277,14 @@ def parse_cif_ca_chains(
                 resseqs=np.array(resseqs, dtype=np.int64),
             )
         )
-        logger.debug(f"Found chain {chain.id} with {len(coords)} residues, "
-                     f"mean_B={np.mean(bfactors):.1f}")
+        logger.debug(f"Found chain {chain.id} with {len(coords)} residues, " f"mean_B={np.mean(bfactors):.1f}")
 
     return chains
 
 
 def count_protein_chains(cif_path: str, pdb_id: str) -> int:
     """Count the number of protein chains in an mmCIF file.
-    
+
     Used for monomeric filter: entries with >1 protein chain are complexes.
     """
     chains = parse_cif_ca_chains(cif_path, pdb_id)
@@ -305,20 +304,20 @@ def passes_bfactor_filter(
     max_high_b_frac: float = DEFAULT_MAX_HIGH_B_FRAC,
 ) -> Tuple[bool, str]:
     """Check B-factor quality criteria.
-    
+
     Returns (passed, reason) where reason explains rejection.
     """
     if len(chain.bfactors) == 0:
         return True, "no B-factors available"
-    
+
     mean_b = chain.mean_bfactor
     if mean_b > max_mean_b:
         return False, f"mean B-factor {mean_b:.1f} > {max_mean_b}"
-    
+
     high_frac = chain.high_b_fraction
     if high_frac > max_high_b_frac:
         return False, f"high-B fraction {high_frac:.1%} > {max_high_b_frac:.0%}"
-    
+
     return True, "ok"
 
 
@@ -519,7 +518,10 @@ def load_pdb_segments(
                             logger.info(f"Reached dataset window limit: {limit_segments}")
                             logger.info(
                                 "Summary so far: chains=%d, fragments=%d, windows_enumerated=%d, windows_kept=%d",
-                                chains_seen, fragments_produced, windows_enumerated, windows_kept,
+                                chains_seen,
+                                fragments_produced,
+                                windows_enumerated,
+                                windows_kept,
                             )
                             if validate_geometry:
                                 _print_validation_stats("Fragment geometry validation", fragment_stats)
@@ -535,7 +537,10 @@ def load_pdb_segments(
 
     logger.info(
         "Dataset build complete: chains=%d, fragments=%d, windows_enumerated=%d, windows_kept=%d",
-        chains_seen, fragments_produced, windows_enumerated, windows_kept,
+        chains_seen,
+        fragments_produced,
+        windows_enumerated,
+        windows_kept,
     )
     if validate_geometry:
         _print_validation_stats("Fragment geometry validation", fragment_stats)
@@ -544,9 +549,7 @@ def load_pdb_segments(
     return windows
 
 
-def get_residue_sequence(
-    pdb_id: str, cache_dir: str, chain_id: Optional[str] = None
-) -> List[str]:
+def get_residue_sequence(pdb_id: str, cache_dir: str, chain_id: Optional[str] = None) -> List[str]:
     """Get 1-letter amino acid sequence for a PDB chain."""
     from calphaebm.data.aa_map import idx_to_aa1
 

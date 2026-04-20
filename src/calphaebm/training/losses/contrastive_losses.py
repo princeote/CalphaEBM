@@ -8,18 +8,13 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from calphaebm.geometry.reconstruct import (
-    nerf_reconstruct,
-    coords_to_internal,
-    extract_anchor,
-)
+from calphaebm.geometry.reconstruct import coords_to_internal, extract_anchor, nerf_reconstruct
 
 # PDB-derived ratio: std(θ) / std(φ) across training chains
 THETA_PHI_RATIO = 0.161
 
 
-def _sample_sigmas(B: int, sigma_min: float, sigma_max: float,
-                   device: torch.device) -> torch.Tensor:
+def _sample_sigmas(B: int, sigma_min: float, sigma_max: float, device: torch.device) -> torch.Tensor:
     """Per-sample log-uniform σ: returns (B, 1) for broadcasting."""
     log_min = math.log(sigma_min)
     log_max = math.log(sigma_max)

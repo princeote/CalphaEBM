@@ -38,6 +38,7 @@ THETA_PHI_RATIO = 0.161
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _inv_softplus(y: float, eps: float = 1e-8) -> float:
     y = float(max(y, eps))
     return float(torch.log(torch.expm1(torch.tensor(y, dtype=torch.float64))).item())
@@ -82,16 +83,16 @@ def _mean_real_length(lengths: torch.Tensor) -> float:
     return max(float(lengths.float().mean().item()), 1.0)
 
 
-def _sample_sigmas(B: int, sigma_min: float, sigma_max: float,
-                   device: torch.device) -> torch.Tensor:
+def _sample_sigmas(B: int, sigma_min: float, sigma_max: float, device: torch.device) -> torch.Tensor:
     """Per-sample log-uniform σ: returns (B, 1) for broadcasting."""
     log_min = math.log(sigma_min)
     log_max = math.log(sigma_max)
     return torch.empty(B, 1, device=device).uniform_(log_min, log_max).exp()
 
 
-def _ic_perturb(R: torch.Tensor, sigma_min: float, sigma_max: float,
-                lengths: Optional[torch.Tensor] = None) -> torch.Tensor:
+def _ic_perturb(
+    R: torch.Tensor, sigma_min: float, sigma_max: float, lengths: Optional[torch.Tensor] = None
+) -> torch.Tensor:
     """IC-perturb a batch: returns R_neg with bonds at 3.8 Å.
 
     Each structure gets its own log-uniform σ so every batch covers the
@@ -151,8 +152,8 @@ def _generate_negatives(
 
 # ── Main phase runner ────────────────────────────────────────────────────────
 
-def run_packing_phase(trainer, config, train_loader, val_loader=None,
-                      native_structures=None, resume=None):
+
+def run_packing_phase(trainer, config, train_loader, val_loader=None, native_structures=None, resume=None):
     """Run packing phase: contrastive training with IC-perturbed negatives."""
 
     if getattr(config, "packing_pretrain", False):
@@ -194,10 +195,7 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
     if burial is not None and hasattr(burial, "_lambda_hp_raw"):
         frozen_names.add("burial._lambda_hp_raw")
 
-    trainable = [
-        (n, p) for n, p in pack.named_parameters()
-        if p.requires_grad and n not in frozen_names
-    ]
+    trainable = [(n, p) for n, p in pack.named_parameters() if p.requires_grad and n not in frozen_names]
     trainable_params = [p for _, p in trainable]
     n_params = sum(p.numel() for p in trainable_params)
 
@@ -211,9 +209,7 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
     if not trainable_params:
         raise RuntimeError("No trainable packing parameters")
 
-    trainer.optimizer = torch.optim.AdamW(
-        trainable_params, lr=lr * 0.5, weight_decay=weight_decay
-    )
+    trainer.optimizer = torch.optim.AdamW(trainable_params, lr=lr * 0.5, weight_decay=weight_decay)
 
     # LR scheduler
     trainer.scheduler = None
@@ -224,13 +220,11 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
 
     # ── Log header ───────────────────────────────────────────────
     init_w = _read_packing_weights(model)
-    logger.info("Initial lambdas: %s  (both frozen at 1.0)",
-                "  ".join(f"{k}={v:.4f}" for k, v in init_w.items()))
+    logger.info("Initial lambdas: %s  (both frozen at 1.0)", "  ".join(f"{k}={v:.4f}" for k, v in init_w.items()))
     if has_ramp:
         logger.info("Gate ramp: %.4f → %.4f over %d steps", ramp_start, ramp_end, ramp_steps)
     logger.info("Negatives: 100%% IC-perturbed (dynamics-focused)")
-    logger.info("σ range: [%.3f, %.3f] rad (log-uniform), θ ratio=%.3f",
-                sigma_min, sigma_max, THETA_PHI_RATIO)
+    logger.info("σ range: [%.3f, %.3f] rad (log-uniform), θ ratio=%.3f", sigma_min, sigma_max, THETA_PHI_RATIO)
 
     # ── Resume ───────────────────────────────────────────────────
     start_step = 0
@@ -285,8 +279,7 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
             E_pos = model.packing(R, seq, lengths=lengths)
 
             # Negative: IC-perturbed (same sequence) — padding-aware
-            E_neg = _generate_negatives(model, R, seq, lengths,
-                                        sigma_min=sigma_min, sigma_max=sigma_max)
+            E_neg = _generate_negatives(model, R, seq, lengths, sigma_min=sigma_min, sigma_max=sigma_max)
             if E_neg is None:
                 continue
 
@@ -320,6 +313,7 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
         except Exception as e:
             logger.error("Error at step %d: %s", phase_step, e)
             import traceback
+
             traceback.print_exc()
             continue
 
@@ -333,10 +327,16 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
                 "[%s] step %6d/%d (global=%d) | loss=%.4f | lr=%.2e | "
                 "ΔE/res=%.4f (ema=%.4f) | correct=%.0f%% (ema=%.0f%%) | "
                 "g_pack=%.3f | %s",
-                config.name, phase_step, n_steps, trainer.global_step,
-                trainer.current_loss, current_lr,
-                delta_per_res, ema_delta,
-                correct * 100, ema_correct * 100,
+                config.name,
+                phase_step,
+                n_steps,
+                trainer.global_step,
+                trainer.current_loss,
+                current_lr,
+                delta_per_res,
+                ema_delta,
+                correct * 100,
+                ema_correct * 100,
                 g_pack,
                 "  ".join(f"λ_{k}={v:.3f}" for k, v in weights.items()),
             )
@@ -352,34 +352,43 @@ def run_packing_phase(trainer, config, train_loader, val_loader=None,
                 e_neg_per_res = float(E_neg.mean().item())
 
             logger.info("══════════════════════════════════════════════════════════════════")
-            logger.info("           STEP %d/%d | loss=%.4f | lr=%.2e",
-                        phase_step, n_steps, trainer.current_loss, current_lr)
+            logger.info(
+                "           STEP %d/%d | loss=%.4f | lr=%.2e", phase_step, n_steps, trainer.current_loss, current_lr
+            )
             logger.info("──────────────────────────────────────────────────────────────────")
-            logger.info("  Lambdas:  %s  (both frozen)",
-                        "  ".join(f"{k}={v:.4f}" for k, v in weights.items()))
-            logger.info("  Gate:     g_pack=%.4f  (effective geom=%.4f  contact=%.4f)",
-                        g_pack,
-                        g_pack * weights.get("geom", 1.0),
-                        g_pack * weights.get("contact", 1.0))
+            logger.info("  Lambdas:  %s  (both frozen)", "  ".join(f"{k}={v:.4f}" for k, v in weights.items()))
+            logger.info(
+                "  Gate:     g_pack=%.4f  (effective geom=%.4f  contact=%.4f)",
+                g_pack,
+                g_pack * weights.get("geom", 1.0),
+                g_pack * weights.get("contact", 1.0),
+            )
             logger.info("  Mode:     100%% IC-perturbed (dynamics-focused)")
             logger.info("──────────────────────────────────────────────────────────────────")
             logger.info("  E_pos/res (native):           %+.4f", e_pos_per_res)
             logger.info("  E_neg/res (IC-perturbed):      %+.4f", e_neg_per_res)
             logger.info("  ΔE/res (neg − pos):           %+.4f  (EMA: %+.4f)", delta_per_res, ema_delta)
-            logger.info("  Correct (pos<neg):             %.1f%%  (EMA: %.1f%%)",
-                        correct * 100, ema_correct * 100)
+            logger.info("  Correct (pos<neg):             %.1f%%  (EMA: %.1f%%)", correct * 100, ema_correct * 100)
             logger.info("  Loss (softplus):               %.6f", trainer.current_loss)
             logger.info("  Mean chain length:             %.0f residues", mean_L)
 
             if hasattr(pack, "mlp"):
                 mlp_params = torch.cat([p.detach().flatten() for p in pack.mlp.parameters()])
-                logger.info("  Geom MLP weights: mean=%.4f  std=%.4f  |max|=%.4f",
-                            mlp_params.mean().item(), mlp_params.std().item(), mlp_params.abs().max().item())
+                logger.info(
+                    "  Geom MLP weights: mean=%.4f  std=%.4f  |max|=%.4f",
+                    mlp_params.mean().item(),
+                    mlp_params.std().item(),
+                    mlp_params.abs().max().item(),
+                )
 
             if hasattr(pack, "burial") and hasattr(pack.burial, "h"):
                 h = pack.burial.h.detach()
-                logger.info("  Contact h vector: mean=%.4f  std=%.4f  |max|=%.4f",
-                            h.mean().item(), h.std().item(), h.abs().max().item())
+                logger.info(
+                    "  Contact h vector: mean=%.4f  std=%.4f  |max|=%.4f",
+                    h.mean().item(),
+                    h.std().item(),
+                    h.abs().max().item(),
+                )
 
             if ema_delta > best_delta:
                 best_delta = ema_delta
