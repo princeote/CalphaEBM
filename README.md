@@ -9,11 +9,11 @@ CalphaEBM decomposes the effective free energy into four interpretable terms:
 | Term | Parameters | What it captures |
 |------|-----------|-----------------|
 | **LocalEnergy** | 12,226 | Backbone geometry: 8-residue sliding window MLP over (θ, φ) angles with learned amino acid embeddings |
-| **SecondaryEnergy** | ~200 | Ramachandran basin potentials (4 basins: helix, sheet, PPII, turn) + helical and sheet hydrogen bond distances |
+| **SecondaryEnergy** | 583 | Ramachandran basin potentials (4 basins: helix, sheet, PPII, turn) with sequence-dependent mixture weights + helical and sheet hydrogen bond distances |
 | **PackingEnergy** | 222 | Tertiary packing: 5-group coordination statistics with product Gaussian scoring |
 | **RepulsionEnergy** | 1 | Excluded volume: PDB-derived repulsive wall with differentiable interpolation |
 
-Total: ~12,500 trainable parameters.
+Total: 13,032 trainable parameters.
 
 All energy terms produce smooth, differentiable forces suitable for Langevin dynamics (MALA) sampling.
 
